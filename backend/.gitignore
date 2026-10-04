@@ -1,0 +1,28 @@
+# Byte-compiled / cache files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual Environment
+.venv/
+env/
+venv/
+
+# Model Weights (Git-ignored per Decision D2)
+models/**
+!models/MANIFEST.json
+
+# Environment / Secret variables
+.env
+.env.*
+!.env.example
+
+# Databases
+*.db
+*.sqlite
+*.sqlite3
+
+# Test caches & coverage
+.pytest_cache/
+.coverage
+htmlcov/
