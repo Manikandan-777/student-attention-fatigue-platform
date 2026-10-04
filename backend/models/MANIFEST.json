@@ -1,0 +1,12 @@
+{
+  "drowsiness": {
+    "repo_id": "mosesb/drowsiness-detection-mobileViT-v2",
+    "revision": "1aa87742178ae3a57b259d797b318bec696b02e1",
+    "license": "mit"
+  },
+  "expression": {
+    "repo_id": "trpakov/vit-face-expression",
+    "revision": "ef0bc6fc34241b6587e7e009e7711357be28c024",
+    "license": "apache-2.0"
+  }
+}
