@@ -1,0 +1,61 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: classroom_monitor_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: classroom_monitoring
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d classroom_monitoring"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: classroom_monitor_backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      HOST: 0.0.0.0
+      PORT: 8000
+      PRIVACY_MODE: "true"
+      SECRET_KEY: "production-secure-random-token-change-in-env"
+      DATABASE_URL: "postgresql://user:password@db:5432/classroom_monitoring"
+      TARGET_FPS: 20
+      TELEMETRY_HZ: 2
+      MIN_CONFIDENCE: 0.80
+      RETENTION_DAYS: 180
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  operator-console:
+    build:
+      context: ./operator-console
+      dockerfile: Dockerfile
+    container_name: classroom_monitor_console
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "80:80"
+
+volumes:
+  postgres_data:
