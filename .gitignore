@@ -1,0 +1,39 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual Environment
+.venv/
+env/
+venv/
+ENV/
+
+# Model Weights (Git-ignored per Decision D2 / Phase 1)
+backend/models/**
+models/**
+!models/MANIFEST.json
+!backend/models/MANIFEST.json
+
+# Environment / Secret variables
+.env
+.env.*
+!.env.example
+
+# Databases
+*.db
+*.sqlite
+*.sqlite3
+
+# Node / Console
+node_modules/
+dist/
+.expo/
+.turbo/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# System
+Thumbs.db
+.DS_Store
