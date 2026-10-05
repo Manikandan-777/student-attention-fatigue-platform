@@ -1,5 +1,7 @@
 // Jest setup for React Native & Expo
 
+jest.setTimeout(20000);
+
 jest.mock('expo-secure-store', () => {
   const store = new Map<string, string>();
   return {

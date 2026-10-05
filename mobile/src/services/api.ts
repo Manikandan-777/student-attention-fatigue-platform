@@ -39,9 +39,12 @@ export const ApiService = {
     return res.data as { id: number; username: string; role: string };
   },
 
-  async getTeacherDashboard() {
-    const res = await apiClient.get<ClassSnapshot>('/teacher/dashboard');
-    return res.data;
+  async getTeacherDashboard(): Promise<ClassSnapshot | null> {
+    const res = await apiClient.get<ClassSnapshot | ClassSnapshot[]>('/teacher/dashboard');
+    if (Array.isArray(res.data)) {
+      return res.data.length > 0 ? res.data[0] : null;
+    }
+    return res.data ?? null;
   },
 
   async getClassrooms() {

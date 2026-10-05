@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, SafeAreaView } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { THEME } from '../theme';
 import { StorageService } from '../services/storage';
 import { LoginScreen } from '../screens/LoginScreen';
@@ -11,6 +12,7 @@ import { StudentDetailScreen } from '../screens/StudentDetailScreen';
 import { AlertCenterScreen } from '../screens/AlertCenterScreen';
 import { SessionReportScreen } from '../screens/SessionReportScreen';
 import { TeacherProfileScreen } from '../screens/TeacherProfileScreen';
+import { AlertSoundSettingsScreen } from '../screens/AlertSoundSettingsScreen';
 
 // Admin Screens
 import { AdminDashboardScreen } from '../screens/AdminDashboardScreen';
@@ -120,9 +122,16 @@ export const RootNavigator: React.FC = () => {
         return <AlertCenterScreen />;
       case 'Reports':
         return <SessionReportScreen />;
+      case 'AlertSound':
+        return <AlertSoundSettingsScreen onBack={() => setActiveTab('Profile')} />;
       case 'Profile':
       default:
-        return <TeacherProfileScreen onLogout={handleLogout} />;
+        return (
+          <TeacherProfileScreen
+            onLogout={handleLogout}
+            onNavigateSettings={() => setActiveTab('AlertSound')}
+          />
+        );
     }
   };
 
@@ -138,9 +147,16 @@ export const RootNavigator: React.FC = () => {
         return <ManageClassroomsScreen />;
       case 'Status':
         return <SystemStatusScreen />;
+      case 'AlertSound':
+        return <AlertSoundSettingsScreen onBack={() => setActiveTab('Profile')} />;
       case 'Profile':
       default:
-        return <TeacherProfileScreen onLogout={handleLogout} />;
+        return (
+          <TeacherProfileScreen
+            onLogout={handleLogout}
+            onNavigateSettings={() => setActiveTab('AlertSound')}
+          />
+        );
     }
   };
 
@@ -186,10 +202,13 @@ export const RootNavigator: React.FC = () => {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
+    height: '100%',
+    minHeight: '100%',
     backgroundColor: THEME.colors.bgSurface,
   },
   body: {
     flex: 1,
+    height: '100%',
   },
   center: {
     flex: 1,

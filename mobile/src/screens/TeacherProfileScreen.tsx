@@ -5,9 +5,10 @@ import { StorageService } from '../services/storage';
 
 interface TeacherProfileScreenProps {
   onLogout: () => void;
+  onNavigateSettings?: () => void;
 }
 
-export const TeacherProfileScreen: React.FC<TeacherProfileScreenProps> = ({ onLogout }) => {
+export const TeacherProfileScreen: React.FC<TeacherProfileScreenProps> = ({ onLogout, onNavigateSettings }) => {
   const [username, setUsername] = useState<string>('Teacher');
   const [role, setRole] = useState<string>('teacher');
 
@@ -22,6 +23,12 @@ export const TeacherProfileScreen: React.FC<TeacherProfileScreenProps> = ({ onLo
   }, []);
 
   const handleLogout = async () => {
+    try {
+      const { unregisterPush } = await import('../services/notifications');
+      await unregisterPush();
+    } catch {
+      // ignore
+    }
     await StorageService.clearAuth();
     onLogout();
   };
@@ -49,6 +56,21 @@ export const TeacherProfileScreen: React.FC<TeacherProfileScreenProps> = ({ onLo
           <Text style={styles.label}>Application</Text>
           <Text style={styles.value}>ClassAware Mobile</Text>
         </View>
+
+        {onNavigateSettings && (
+          <>
+            <View style={styles.divider} />
+            <TouchableOpacity
+              style={styles.settingsRow}
+              onPress={onNavigateSettings}
+              accessibilityRole="button"
+              accessibilityLabel="Alert Sound Settings"
+            >
+              <Text style={styles.settingsLabel}>Alert Sound & Push Notifications</Text>
+              <Text style={styles.settingsChevron}>›</Text>
+            </TouchableOpacity>
+          </>
+        )}
       </View>
 
       <TouchableOpacity
@@ -119,5 +141,22 @@ const styles = StyleSheet.create({
     color: THEME.colors.accentDanger,
     fontWeight: 'bold',
     fontSize: THEME.typography.sizes.base,
+  },
+  settingsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: THEME.spacing.space3,
+    minHeight: THEME.spacing.space11, // 44dp
+  },
+  settingsLabel: {
+    fontSize: THEME.typography.sizes.sm,
+    fontWeight: '600',
+    color: THEME.colors.accentPrimary,
+  },
+  settingsChevron: {
+    fontSize: THEME.typography.sizes.lg,
+    color: THEME.colors.textSecondary,
+    fontWeight: 'bold',
   },
 });

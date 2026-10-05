@@ -43,6 +43,11 @@ export const TeacherDashboardScreen: React.FC<TeacherDashboardScreenProps> = ({
 
     loadInitialData();
 
+    // Register for high-priority loud push notifications (§8.3)
+    import('../services/notifications')
+      .then((m) => m.registerForPush())
+      .catch(() => {});
+
     // Connect to WebSocket telemetry
     mobileTelemetry.connect();
 

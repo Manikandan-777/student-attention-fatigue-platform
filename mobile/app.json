@@ -20,6 +20,13 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "plugins": [
+      ["expo-notifications", {
+        "icon": "./assets/icon.png",
+        "color": "#465FFF",
+        "sounds": ["./assets/sounds/alert_high.wav"]
+      }]
+    ]
   }
 }
