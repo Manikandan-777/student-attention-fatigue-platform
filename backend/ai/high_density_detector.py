@@ -289,20 +289,34 @@ class UltraScaleTracker:
                     self.track_lost_count[tid] = 0
             return list(self.active_tracks.values())
 
-        # Match detections to existing tracks
+        # Build spatial grid of detections for O(N) matching
+        grid: Dict[Tuple[int, int], List[int]] = {}
+        grid_dim = 25
+        for idx, det in enumerate(detections):
+            gx = min(grid_dim - 1, max(0, int(det.x * grid_dim)))
+            gy = min(grid_dim - 1, max(0, int(det.y * grid_dim)))
+            grid.setdefault((gx, gy), []).append(idx)
+
         det_matched = [False] * len(detections)
         matched_tracks = set()
 
         for tid, track in self.active_tracks.items():
             best_iou = 0.0
             best_idx = -1
-            for i, det in enumerate(detections):
-                if det_matched[i]:
-                    continue
-                iou = self._iou(track, det)
-                if iou > best_iou:
-                    best_iou = iou
-                    best_idx = i
+            tgx = min(grid_dim - 1, max(0, int(track.x * grid_dim)))
+            tgy = min(grid_dim - 1, max(0, int(track.y * grid_dim)))
+
+            # Inspect neighboring spatial grid cells only
+            for dx in (-1, 0, 1):
+                for dy in (-1, 0, 1):
+                    cand_list = grid.get((tgx + dx, tgy + dy), [])
+                    for i in cand_list:
+                        if det_matched[i]:
+                            continue
+                        iou = self._iou(track, detections[i])
+                        if iou > best_iou:
+                            best_iou = iou
+                            best_idx = i
 
             if best_idx >= 0 and best_iou >= self.iou_threshold:
                 det = detections[best_idx]

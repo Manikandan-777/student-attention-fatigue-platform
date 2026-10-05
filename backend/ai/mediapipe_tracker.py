@@ -72,6 +72,7 @@ class MultiFaceTracker:
         min_detection_confidence: float = 0.5,
         max_lost_frames: int = 30,
         match_distance_threshold: float = 0.35,
+        smooth_lost_frames: int = 0,
     ) -> None:
         self.model_path = Path(model_path) if model_path else DEFAULT_MODEL_PATH
         if not self.model_path.exists():
@@ -83,6 +84,7 @@ class MultiFaceTracker:
         self.max_num_faces = max_num_faces
         self.max_lost_frames = max_lost_frames
         self.match_distance_threshold = match_distance_threshold
+        self.smooth_lost_frames = smooth_lost_frames
 
         base_options = BaseOptions(model_asset_path=str(self.model_path))
         options = FaceLandmarkerOptions(
@@ -209,5 +211,5 @@ class MultiFaceTracker:
         for tid in to_delete:
             del self._tracks[tid]
 
-        # Return only currently detected/active tracks (lost_frames == 0)
-        return [trk for trk in self._tracks.values() if trk.lost_frames == 0]
+        # Return only currently detected/active tracks (lost_frames <= smooth_lost_frames)
+        return [trk for trk in self._tracks.values() if trk.lost_frames <= self.smooth_lost_frames]
