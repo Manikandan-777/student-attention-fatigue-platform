@@ -11,14 +11,19 @@ export interface TrackResult {
   track_id: number;
   label: string;
   bbox: [number, number, number, number];
-  bbox_normalized: boolean;
-  landmark_confidence: number;
+  bbox_normalized?: boolean;
+  landmark_confidence?: number;
   attention_score: number;
   fatigue_index: number;
   attention_status: AttentionStatus;
   fatigue_status: FatigueStatus;
   confidence: number;
-  model_mode: 'heuristic' | 'lstm';
+  model_mode?: 'heuristic' | 'lstm';
+  ear?: number;
+  mar?: number;
+  head_yaw?: number;
+  head_pitch?: number;
+  perclos?: number;
 }
 
 export interface ClassSnapshot {

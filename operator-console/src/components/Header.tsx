@@ -1,7 +1,11 @@
-import React from 'react';
+import React, { Suspense, lazy } from 'react';
 import { LogOut, User } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { StatusBadge } from './StatusBadge';
+import { LiveCameraErrorBoundary } from '../features/live-camera';
+
+const LazyLiveCameraButton = lazy(() => import('../features/live-camera/LiveCameraButton'));
+const isLiveCameraEnabled = import.meta.env.VITE_LIVE_CAMERA_ENABLED === 'true';
 
 interface HeaderProps {
   sessionTitle?: string;
@@ -24,6 +28,14 @@ export const Header: React.FC<HeaderProps> = ({
       </div>
 
       <div className="flex items-center space-x-space-6">
+        {isLiveCameraEnabled && (
+          <LiveCameraErrorBoundary>
+            <Suspense fallback={null}>
+              <LazyLiveCameraButton />
+            </Suspense>
+          </LiveCameraErrorBoundary>
+        )}
+
         <div className="flex items-center space-x-space-3">
           <div className="w-8 h-8 rounded-radius-pill bg-bg-info text-accent-primary flex items-center justify-center font-bold text-xs">
             <User className="w-4 h-4" />

@@ -7,6 +7,7 @@ import { LiveGrid } from '../components/LiveGrid';
 import { AttentionTrendChart, AttentionDataPoint } from '../components/AttentionTrendChart';
 import { DistributionChart } from '../components/DistributionChart';
 import { FatigueTimelineChart, FatigueDataPoint } from '../components/FatigueTimelineChart';
+import { LivePipelineDiagram } from '../components/LivePipelineDiagram';
 import { RingBuffer } from '../utils/ringBuffer';
 
 export const DashboardPage: React.FC = () => {
@@ -112,6 +113,16 @@ export const DashboardPage: React.FC = () => {
           icon={<Bell className="w-5 h-5 text-accent-danger" />}
         />
       </div>
+
+      {/* Live AI Camera Fatigue Analysis Visual Pipeline Diagram */}
+      <LivePipelineDiagram
+        tracks={tracks}
+        snapshot={snapshot}
+        selectedTrackId={selectedTrackId}
+        onSelectTrack={(id) =>
+          setSelectedTrackId((prev) => (prev === id ? null : id))
+        }
+      />
 
       {/* Live Grid (Phase 18) */}
       <div className="bg-bg-surface border border-border-subtle rounded-radius-xl p-space-6 shadow-sm">
