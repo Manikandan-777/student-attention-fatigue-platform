@@ -1,36 +1,23 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { LayoutDashboard, Users, User } from 'lucide-react-native';
 import { THEME } from '../theme';
 import { StorageService } from '../services/storage';
+import { ApiService } from '../services/api';
+import { WebSocketService } from '../services/websocket';
 import { LoginScreen } from '../screens/LoginScreen';
-
-// Teacher Screens
 import { TeacherDashboardScreen } from '../screens/TeacherDashboardScreen';
-import { StudentListScreen } from '../screens/StudentListScreen';
-import { StudentDetailScreen } from '../screens/StudentDetailScreen';
-import { AlertCenterScreen } from '../screens/AlertCenterScreen';
-import { SessionReportScreen } from '../screens/SessionReportScreen';
-import { TeacherProfileScreen } from '../screens/TeacherProfileScreen';
-import { AlertSoundSettingsScreen } from '../screens/AlertSoundSettingsScreen';
-
-// Admin Screens
 import { AdminDashboardScreen } from '../screens/AdminDashboardScreen';
-import { ManageStudentsScreen } from '../screens/ManageStudentsScreen';
 import { ManageTeachersScreen } from '../screens/ManageTeachersScreen';
-import { ManageClassroomsScreen } from '../screens/ManageClassroomsScreen';
-import { SystemStatusScreen } from '../screens/SystemStatusScreen';
-
-import { TrackResultLite } from '../types';
+import { TeacherProfileScreen } from '../screens/TeacherProfileScreen';
 
 export const RootNavigator: React.FC = () => {
   const [token, setToken] = useState<string | null>(null);
   const [role, setRole] = useState<string | null>(null);
+  const [userProfile, setUserProfile] = useState<{ username: string; display_name?: string } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-
-  // Active navigation tab
   const [activeTab, setActiveTab] = useState<string>('Dashboard');
-  const [selectedStudent, setSelectedStudent] = useState<TrackResultLite | null>(null);
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -38,30 +25,58 @@ export const RootNavigator: React.FC = () => {
       const storedRole = await StorageService.getRole();
       setToken(storedToken);
       setRole(storedRole);
+
+      if (storedToken) {
+        try {
+          const me = await ApiService.getMe();
+          setUserProfile({ username: me.username });
+        } catch {
+          // If token expired, logout cleanly
+          await StorageService.clearAll();
+          setToken(null);
+          setRole(null);
+        }
+      }
       setIsLoading(false);
     };
 
     checkAuth();
   }, []);
 
-  const handleLoginSuccess = (userRole: string) => {
+  const handleLoginSuccess = async (userRole: string, username?: string) => {
     setToken('authenticated');
     setRole(userRole);
+    if (username) {
+      setUserProfile({ username });
+    } else {
+      try {
+        const me = await ApiService.getMe();
+        setUserProfile({ username: me.username });
+      } catch {
+        // Fallback
+      }
+    }
     setActiveTab('Dashboard');
-    setSelectedStudent(null);
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try {
+      await ApiService.logout();
+    } catch {
+      // Ignore
+    }
+    WebSocketService.disconnect();
+    await StorageService.clearAll();
     setToken(null);
     setRole(null);
+    setUserProfile(null);
     setActiveTab('Dashboard');
-    setSelectedStudent(null);
   };
 
   if (isLoading) {
     return (
       <View style={styles.center}>
-        <Text style={styles.loadingText}>Initializing ClassAware...</Text>
+        <Text style={styles.loadingText}>Initializing AI Classroom Monitor...</Text>
       </View>
     );
   }
@@ -70,130 +85,97 @@ export const RootNavigator: React.FC = () => {
     return <LoginScreen onLoginSuccess={handleLoginSuccess} />;
   }
 
-  // Teacher Tabs per APP-22
+  // Teacher Tabs per §2: Dashboard, Profile
   const teacherTabs = [
-    { name: 'Dashboard', label: 'Dashboard' },
-    { name: 'Students', label: 'Students' },
-    { name: 'Alerts', label: 'Alerts' },
-    { name: 'Reports', label: 'Reports' },
-    { name: 'Profile', label: 'Profile' },
+    { name: 'Dashboard', label: 'Dashboard', icon: LayoutDashboard },
+    { name: 'Profile', label: 'Profile', icon: User },
   ];
 
-  // Admin Tabs per APP-22
+  // Admin Tabs per §2: Dashboard, Teachers, Profile
   const adminTabs = [
-    { name: 'Dashboard', label: 'Dashboard' },
-    { name: 'Students', label: 'Students' },
-    { name: 'Teachers', label: 'Teachers' },
-    { name: 'Classrooms', label: 'Classrooms' },
-    { name: 'Status', label: 'Status' },
-    { name: 'Profile', label: 'Profile' },
+    { name: 'Dashboard', label: 'Dashboard', icon: LayoutDashboard },
+    { name: 'Teachers', label: 'Teachers', icon: Users },
+    { name: 'Profile', label: 'Profile', icon: User },
   ];
 
   const currentTabs = role === 'admin' ? adminTabs : teacherTabs;
 
-  const renderTeacherContent = () => {
-    if (selectedStudent) {
-      return (
-        <StudentDetailScreen
-          student={selectedStudent}
-          onBack={() => setSelectedStudent(null)}
-          onViewReport={() => {
-            setSelectedStudent(null);
-            setActiveTab('Reports');
-          }}
-        />
-      );
-    }
-
-    switch (activeTab) {
-      case 'Dashboard':
-        return (
-          <TeacherDashboardScreen
-            onNavigate={(screen) => setActiveTab(screen)}
-          />
-        );
-      case 'Students':
-        return (
-          <StudentListScreen
-            onSelectStudent={(st) => setSelectedStudent(st)}
-          />
-        );
-      case 'Alerts':
-        return <AlertCenterScreen />;
-      case 'Reports':
-        return <SessionReportScreen />;
-      case 'AlertSound':
-        return <AlertSoundSettingsScreen onBack={() => setActiveTab('Profile')} />;
-      case 'Profile':
-      default:
-        return (
-          <TeacherProfileScreen
-            onLogout={handleLogout}
-            onNavigateSettings={() => setActiveTab('AlertSound')}
-          />
-        );
-    }
-  };
-
-  const renderAdminContent = () => {
-    switch (activeTab) {
-      case 'Dashboard':
-        return <AdminDashboardScreen />;
-      case 'Students':
-        return <ManageStudentsScreen />;
-      case 'Teachers':
-        return <ManageTeachersScreen />;
-      case 'Classrooms':
-        return <ManageClassroomsScreen />;
-      case 'Status':
-        return <SystemStatusScreen />;
-      case 'AlertSound':
-        return <AlertSoundSettingsScreen onBack={() => setActiveTab('Profile')} />;
-      case 'Profile':
-      default:
-        return (
-          <TeacherProfileScreen
-            onLogout={handleLogout}
-            onNavigateSettings={() => setActiveTab('AlertSound')}
-          />
-        );
+  const renderContent = () => {
+    if (role === 'admin') {
+      switch (activeTab) {
+        case 'Dashboard':
+          return <AdminDashboardScreen onNavigateTab={(tab) => setActiveTab(tab)} />;
+        case 'Teachers':
+          return <ManageTeachersScreen />;
+        case 'Profile':
+        default:
+          return (
+            <TeacherProfileScreen
+              role="admin"
+              username={userProfile?.username || 'admin'}
+              displayName="Dr. Raman S"
+              onLogout={handleLogout}
+            />
+          );
+      }
+    } else {
+      switch (activeTab) {
+        case 'Dashboard':
+          return <TeacherDashboardScreen onNavigateTab={(tab) => setActiveTab(tab)} />;
+        case 'Profile':
+        default:
+          return (
+            <TeacherProfileScreen
+              role="teacher"
+              username={userProfile?.username || 'aravind.k'}
+              displayName="Mr. Aravind K"
+              classroomName="AI & DS - A Section"
+              onLogout={handleLogout}
+            />
+          );
+      }
     }
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <View style={styles.body}>
-        {role === 'admin' ? renderAdminContent() : renderTeacherContent()}
-      </View>
+    <SafeAreaView style={styles.safeArea} edges={['top', 'bottom', 'left', 'right']}>
+      <View style={styles.body}>{renderContent()}</View>
 
-      {/* Bottom Tab Bar per APP-22 */}
+      {/* Bottom Tab Bar matching Exact UI design */}
       <View
         accessibilityRole="tablist"
         aria-label="Bottom navigation tabs"
         style={styles.tabBar}
       >
-        {currentTabs.map((tab) => (
-          <TouchableOpacity
-            key={tab.name}
-            style={styles.tabItem}
-            onPress={() => {
-              setSelectedStudent(null);
-              setActiveTab(tab.name);
-            }}
-            accessibilityRole="tab"
-            accessibilityState={{ selected: activeTab === tab.name && !selectedStudent }}
-            accessibilityLabel={tab.label}
-          >
-            <Text
-              style={[
-                styles.tabLabel,
-                activeTab === tab.name && !selectedStudent && styles.tabLabelActive,
-              ]}
+        {currentTabs.map((tab) => {
+          const Icon = tab.icon;
+          const isActive = activeTab === tab.name;
+          return (
+            <TouchableOpacity
+              key={tab.name}
+              style={styles.tabItem}
+              onPress={() => setActiveTab(tab.name)}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: isActive }}
+              accessibilityLabel={tab.label}
+              activeOpacity={0.7}
             >
-              {tab.label}
-            </Text>
-          </TouchableOpacity>
-        ))}
+              <Icon
+                size={22}
+                color={isActive ? THEME.colors.primary : THEME.colors.textMuted}
+                strokeWidth={isActive ? 2.4 : 1.8}
+              />
+              <Text
+                style={[
+                  styles.tabLabel,
+                  isActive && styles.tabLabelActive,
+                ]}
+              >
+                {tab.label}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
       </View>
     </SafeAreaView>
   );
@@ -204,7 +186,7 @@ const styles = StyleSheet.create({
     flex: 1,
     height: '100%',
     minHeight: '100%',
-    backgroundColor: THEME.colors.bgSurface,
+    backgroundColor: THEME.colors.background,
   },
   body: {
     flex: 1,
@@ -214,33 +196,42 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: THEME.colors.bgApp,
+    backgroundColor: THEME.colors.background,
   },
   loadingText: {
-    fontSize: THEME.typography.sizes.base,
+    fontSize: 15,
     color: THEME.colors.textSecondary,
+    fontWeight: '500',
   },
   tabBar: {
-    minHeight: THEME.spacing.space13, // 56dp per UI-2 space-13
+    minHeight: 58,
     flexDirection: 'row',
     borderTopWidth: 1,
-    borderTopColor: THEME.colors.borderSubtle,
-    backgroundColor: THEME.colors.bgSurface,
+    borderTopColor: '#E2E8F0',
+    backgroundColor: '#FFFFFF',
     alignItems: 'center',
+    paddingBottom: 2,
+    elevation: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 3,
   },
   tabItem: {
     flex: 1,
-    minHeight: THEME.spacing.space11, // 44dp touch target per UI-7
+    minHeight: 48,
     justifyContent: 'center',
     alignItems: 'center',
+    paddingVertical: 4,
   },
   tabLabel: {
-    fontSize: THEME.typography.sizes.xs,
-    color: THEME.colors.textSecondary,
-    fontWeight: '600',
+    fontSize: 11,
+    color: THEME.colors.textMuted,
+    fontWeight: '500',
+    marginTop: 2,
   },
   tabLabelActive: {
-    color: THEME.colors.accentPrimary,
-    fontWeight: 'bold',
+    color: THEME.colors.primary,
+    fontWeight: '700',
   },
 });
