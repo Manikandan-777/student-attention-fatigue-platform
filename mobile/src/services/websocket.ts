@@ -1,28 +1,27 @@
 import { WS_TELEMETRY_URL } from '../config';
 import { StorageService } from './storage';
-import { ClassSnapshot, TrackResultLite, Alert, SystemStatus } from '../types';
+import { ClassSnapshot, TrackResultLite } from '../types';
 
 export type TelemetryListener = (data: {
   snapshot?: ClassSnapshot;
   tracks?: TrackResultLite[];
+  ts?: string;
 }) => void;
 
-export type AlertListener = (alert: Alert) => void;
-export type SystemStatusListener = (status: SystemStatus) => void;
 export type ConnectionListener = (isConnected: boolean) => void;
 
 export class MobileTelemetryClient {
   private ws: WebSocket | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private isDestroyed = false;
+  private currentSessionId?: number;
 
   private telemetryListeners: Set<TelemetryListener> = new Set();
-  private alertListeners: Set<AlertListener> = new Set();
-  private systemStatusListeners: Set<SystemStatusListener> = new Set();
   private connectionListeners: Set<ConnectionListener> = new Set();
 
   async connect(sessionId?: number): Promise<void> {
     this.isDestroyed = false;
+    this.currentSessionId = sessionId;
     const token = await StorageService.getToken();
     if (!token) return;
 
@@ -33,8 +32,8 @@ export class MobileTelemetryClient {
 
       this.ws.onopen = () => {
         this.notifyConnection(true);
-        if (sessionId && this.ws?.readyState === WebSocket.OPEN) {
-          this.ws.send(JSON.stringify({ type: 'subscribe', session_id: sessionId }));
+        if (this.currentSessionId && this.ws?.readyState === WebSocket.OPEN) {
+          this.ws.send(JSON.stringify({ type: 'subscribe', session_id: this.currentSessionId }));
         }
       };
 
@@ -43,12 +42,8 @@ export class MobileTelemetryClient {
           const msg = JSON.parse(event.data);
           if (msg.type === 'telemetry') {
             this.telemetryListeners.forEach((l) =>
-              l({ snapshot: msg.snapshot, tracks: msg.tracks })
+              l({ snapshot: msg.snapshot, tracks: msg.tracks, ts: msg.ts })
             );
-          } else if (msg.type === 'alert') {
-            this.alertListeners.forEach((l) => l(msg.alert));
-          } else if (msg.type === 'system_status') {
-            this.systemStatusListeners.forEach((l) => l(msg.status));
           }
         } catch (e) {
           console.warn('Failed to parse WebSocket message:', e);
@@ -57,7 +52,7 @@ export class MobileTelemetryClient {
 
       this.ws.onclose = () => {
         this.notifyConnection(false);
-        this.scheduleReconnect(sessionId);
+        this.scheduleReconnect();
       };
 
       this.ws.onerror = () => {
@@ -68,7 +63,14 @@ export class MobileTelemetryClient {
       };
     } catch {
       this.notifyConnection(false);
-      this.scheduleReconnect(sessionId);
+      this.scheduleReconnect();
+    }
+  }
+
+  subscribeSession(sessionId: number): void {
+    this.currentSessionId = sessionId;
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({ type: 'subscribe', session_id: sessionId }));
     }
   }
 
@@ -76,27 +78,17 @@ export class MobileTelemetryClient {
     this.connectionListeners.forEach((l) => l(connected));
   }
 
-  private scheduleReconnect(sessionId?: number) {
+  private scheduleReconnect() {
     if (this.isDestroyed) return;
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.reconnectTimer = setTimeout(() => {
-      this.connect(sessionId);
+      this.connect(this.currentSessionId);
     }, 4000);
   }
 
   onTelemetry(listener: TelemetryListener): () => void {
     this.telemetryListeners.add(listener);
     return () => this.telemetryListeners.delete(listener);
-  }
-
-  onAlert(listener: AlertListener): () => void {
-    this.alertListeners.add(listener);
-    return () => this.alertListeners.delete(listener);
-  }
-
-  onSystemStatus(listener: SystemStatusListener): () => void {
-    this.systemStatusListeners.add(listener);
-    return () => this.systemStatusListeners.delete(listener);
   }
 
   onConnectionChange(listener: ConnectionListener): () => void {
@@ -116,3 +108,4 @@ export class MobileTelemetryClient {
 }
 
 export const mobileTelemetry = new MobileTelemetryClient();
+export const WebSocketService = mobileTelemetry;
