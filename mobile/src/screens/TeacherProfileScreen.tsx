@@ -1,85 +1,114 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { LogOut, ChevronRight } from 'lucide-react-native';
 import { THEME } from '../theme';
 import { StorageService } from '../services/storage';
+import { StatusBadge } from '../components/StatusBadge';
 
 interface TeacherProfileScreenProps {
+  role?: 'teacher' | 'admin';
+  username?: string;
+  displayName?: string;
+  classroomName?: string;
   onLogout: () => void;
-  onNavigateSettings?: () => void;
 }
 
-export const TeacherProfileScreen: React.FC<TeacherProfileScreenProps> = ({ onLogout, onNavigateSettings }) => {
-  const [username, setUsername] = useState<string>('Teacher');
-  const [role, setRole] = useState<string>('teacher');
+export const TeacherProfileScreen: React.FC<TeacherProfileScreenProps> = ({
+  role = 'teacher',
+  username: initialUsername,
+  displayName: initialDisplayName,
+  classroomName: initialClassroom = 'AI & DS - A Section',
+  onLogout,
+}) => {
+  const [username, setUsername] = useState<string>(initialUsername || (role === 'admin' ? 'admin' : 'aravind.k'));
+  const [displayName, setDisplayName] = useState<string>(
+    initialDisplayName || (role === 'admin' ? 'Dr. Raman S' : 'Mr. Aravind K')
+  );
+  const [userRole, setUserRole] = useState<string>(role);
 
   useEffect(() => {
     const loadInfo = async () => {
       const u = await StorageService.getUsername();
       const r = await StorageService.getRole();
-      if (u) setUsername(u);
-      if (r) setRole(r);
+      if (u) {
+        setUsername(u);
+        if (u.includes('.')) {
+          const parts = u.split('.');
+          const formatted = `${parts[0].charAt(0).toUpperCase() + parts[0].slice(1)} ${parts[1]?.toUpperCase() || ''}`.trim();
+          setDisplayName(r === 'admin' ? `Dr. ${formatted}` : `Mr. ${formatted}`);
+        }
+      }
+      if (r) setUserRole(r);
     };
     loadInfo();
-  }, []);
+  }, [role]);
 
-  const handleLogout = async () => {
-    try {
-      const { unregisterPush } = await import('../services/notifications');
-      await unregisterPush();
-    } catch {
-      // ignore
-    }
-    await StorageService.clearAuth();
-    onLogout();
-  };
+  const initials = displayName
+    .split(' ')
+    .filter((_, i) => i > 0)
+    .map((n) => n[0])
+    .join('')
+    .slice(0, 2)
+    .toUpperCase() || 'AK';
+
+  const isTeacher = userRole === 'teacher';
 
   return (
     <View style={styles.container}>
-      <Text style={styles.header}>User Profile</Text>
+      {/* Title */}
+      <Text style={styles.title}>Profile</Text>
 
-      <View style={styles.card}>
-        <View style={styles.infoRow}>
-          <Text style={styles.label}>Username</Text>
-          <Text style={styles.value}>{username}</Text>
+      {/* Main Profile Info */}
+      <View style={styles.centerSection}>
+        {/* Avatar */}
+        <View style={styles.avatar}>
+          <Text style={styles.avatarText}>{initials}</Text>
         </View>
 
-        <View style={styles.divider} />
+        {/* Display Name */}
+        <Text style={styles.nameText}>{displayName}</Text>
 
-        <View style={styles.infoRow}>
-          <Text style={styles.label}>Role</Text>
-          <Text style={[styles.value, styles.roleValue]}>{role}</Text>
+        {/* Role Badge */}
+        <View style={styles.badgeContainer}>
+          <StatusBadge status={isTeacher ? 'Teacher' : 'Admin'} size="sm" />
         </View>
 
-        <View style={styles.divider} />
+        {/* Details Card */}
+        <View style={styles.detailsCard}>
+          <View style={styles.detailRow}>
+            <Text style={styles.detailLabel}>Username</Text>
+            <Text style={styles.detailValue}>{username}</Text>
+          </View>
 
-        <View style={styles.infoRow}>
-          <Text style={styles.label}>Application</Text>
-          <Text style={styles.value}>ClassAware Mobile</Text>
+          {isTeacher && (
+            <View style={styles.detailRow}>
+              <Text style={styles.detailLabel}>Classroom</Text>
+              <Text style={styles.detailValue}>{initialClassroom}</Text>
+            </View>
+          )}
+
+          {!isTeacher && (
+            <View style={styles.detailRow}>
+              <Text style={styles.detailLabel}>Access Level</Text>
+              <Text style={styles.detailValue}>Full Administrator</Text>
+            </View>
+          )}
         </View>
-
-        {onNavigateSettings && (
-          <>
-            <View style={styles.divider} />
-            <TouchableOpacity
-              style={styles.settingsRow}
-              onPress={onNavigateSettings}
-              accessibilityRole="button"
-              accessibilityLabel="Alert Sound Settings"
-            >
-              <Text style={styles.settingsLabel}>Alert Sound & Push Notifications</Text>
-              <Text style={styles.settingsChevron}>›</Text>
-            </TouchableOpacity>
-          </>
-        )}
       </View>
 
+      {/* Log out Button matching UI design image */}
       <TouchableOpacity
         style={styles.logoutButton}
-        onPress={handleLogout}
+        onPress={onLogout}
+        activeOpacity={0.7}
         accessibilityRole="button"
-        accessibilityLabel="Log Out"
+        accessibilityLabel="Log out"
       >
-        <Text style={styles.logoutButtonText}>Log Out</Text>
+        <View style={styles.logoutLeft}>
+          <LogOut size={18} color="#EF4444" strokeWidth={2.2} style={styles.logoutIcon} />
+          <Text style={styles.logoutText}>Log out</Text>
+        </View>
+        <ChevronRight size={18} color="#EF4444" strokeWidth={2.2} />
       </TouchableOpacity>
     </View>
   );
@@ -88,75 +117,102 @@ export const TeacherProfileScreen: React.FC<TeacherProfileScreenProps> = ({ onLo
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: THEME.colors.bgApp,
-    padding: THEME.spacing.space8,
-  },
-  header: {
-    fontSize: THEME.typography.sizes.lg,
-    fontWeight: 'bold',
-    color: THEME.colors.textPrimary,
-    marginBottom: THEME.spacing.space6,
-  },
-  card: {
-    backgroundColor: THEME.colors.bgSurface,
-    borderColor: THEME.colors.borderSubtle,
-    borderWidth: 1,
-    borderRadius: THEME.radius.xl,
-    padding: THEME.spacing.space8,
-    marginBottom: THEME.spacing.space8,
-  },
-  infoRow: {
-    flexDirection: 'row',
+    backgroundColor: '#F8FAFC',
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 24,
     justifyContent: 'space-between',
-    paddingVertical: THEME.spacing.space2,
   },
-  label: {
-    fontSize: THEME.typography.sizes.sm,
-    color: THEME.colors.textSecondary,
+  title: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#0F172A',
+    marginBottom: 20,
   },
-  value: {
-    fontSize: THEME.typography.sizes.sm,
-    fontWeight: 'bold',
-    color: THEME.colors.textPrimary,
+  centerSection: {
+    alignItems: 'center',
+    width: '100%',
   },
-  roleValue: {
-    textTransform: 'capitalize',
-    color: THEME.colors.accentPrimary,
-  },
-  divider: {
-    height: 1,
-    backgroundColor: THEME.colors.borderSubtle,
-    marginVertical: THEME.spacing.space3,
-  },
-  logoutButton: {
-    minHeight: THEME.spacing.space11, // 44dp
-    backgroundColor: THEME.colors.bgSurface,
-    borderColor: THEME.colors.accentDanger,
-    borderWidth: 1,
-    borderRadius: THEME.radius.lg,
+  avatar: {
+    width: 88,
+    height: 88,
+    borderRadius: 44,
+    backgroundColor: '#EEF2FF',
+    borderWidth: 3,
+    borderColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
+    elevation: 3,
+    shadowColor: '#4F46E5',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.12,
+    shadowRadius: 6,
+    marginBottom: 14,
   },
-  logoutButtonText: {
-    color: THEME.colors.accentDanger,
-    fontWeight: 'bold',
-    fontSize: THEME.typography.sizes.base,
+  avatarText: {
+    fontSize: 26,
+    fontWeight: '800',
+    color: '#4F46E5',
   },
-  settingsRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: THEME.spacing.space3,
-    minHeight: THEME.spacing.space11, // 44dp
+  nameText: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#0F172A',
+    marginBottom: 8,
   },
-  settingsLabel: {
-    fontSize: THEME.typography.sizes.sm,
+  badgeContainer: {
+    marginBottom: 28,
+  },
+  detailsCard: {
+    width: '100%',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderWidth: 1,
+    borderColor: '#F1F5F9',
+    elevation: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.03,
+    shadowRadius: 2,
+  },
+  detailRow: {
+    paddingVertical: 12,
+  },
+  detailLabel: {
+    fontSize: 12,
+    color: '#64748B',
+    fontWeight: '500',
+    marginBottom: 2,
+  },
+  detailValue: {
+    fontSize: 14,
     fontWeight: '600',
-    color: THEME.colors.accentPrimary,
+    color: '#0F172A',
   },
-  settingsChevron: {
-    fontSize: THEME.typography.sizes.lg,
-    color: THEME.colors.textSecondary,
-    fontWeight: 'bold',
+  logoutButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1,
+    borderColor: '#FEE2E2',
+    borderRadius: 14,
+    paddingVertical: 14,
+    paddingHorizontal: 18,
+    minHeight: 52,
+  },
+  logoutLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  logoutIcon: {
+    marginRight: 10,
+  },
+  logoutText: {
+    color: '#DC2626',
+    fontWeight: '700',
+    fontSize: 14.5,
   },
 });
