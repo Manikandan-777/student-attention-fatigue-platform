@@ -34,6 +34,8 @@ class SessionOut(BaseModel):
     ended_at: Optional[datetime] = None
     status: str
     students_detected_max: int
+    class_name: Optional[str] = None
+    room_name: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
@@ -220,6 +222,12 @@ def teacher_dashboard(
                 class_name=class_name or "Classroom",
             )
 
+        class_fatigue_pct = advisory.get("class_fatigue_pct") if advisory else None
+        if class_fatigue_pct is None and recent_obs:
+            usable_f = [o.fatigue_index_mean for o in recent_obs if (o.fatigue_status or "").lower() != "unknown" and o.fatigue_index_mean is not None]
+            if usable_f:
+                class_fatigue_pct = round(float(100.0 * sum(usable_f) / len(usable_f)), 1)
+
         snapshots.append({
             "session_id": sess.id,
             "class_name": class_name,
@@ -227,6 +235,7 @@ def teacher_dashboard(
             "students_detected": sess.students_detected_max,
             "counts": counts,
             "avg_attention_score": avg_score,
+            "class_fatigue_pct": class_fatigue_pct,
             "open_alerts": open_alerts,
             "fatigue_advisory": advisory,
         })

@@ -20,6 +20,8 @@ class TeacherOut(BaseModel):
     display_name: str
     username: str
     active: bool
+    classroom_name: Optional[str] = None
+    classroom_id: Optional[int] = None
 
     model_config = {"from_attributes": True}
 
@@ -28,11 +30,14 @@ class TeacherCreate(BaseModel):
     username: str
     password: str
     display_name: str
+    classroom_id: Optional[int] = None
+    active: Optional[bool] = True
 
 
 class TeacherUpdate(BaseModel):
     display_name: Optional[str] = None
     active: Optional[bool] = None
+    classroom_id: Optional[int] = None
 
 
 def _get_teacher_or_404(db: DBSession, teacher_id: int) -> Teacher:
@@ -43,12 +48,19 @@ def _get_teacher_or_404(db: DBSession, teacher_id: int) -> Teacher:
 
 
 def _teacher_to_out(t: Teacher) -> TeacherOut:
+    c_name = None
+    c_id = None
+    if t.classroom_links and len(t.classroom_links) > 0 and t.classroom_links[0].classroom:
+        c_name = t.classroom_links[0].classroom.class_name
+        c_id = t.classroom_links[0].classroom_id
     return TeacherOut(
         id=t.id,
         user_id=t.user_id,
         display_name=t.display_name,
         username=t.user.username,
         active=t.user.active,
+        classroom_name=c_name,
+        classroom_id=c_id,
     )
 
 
@@ -75,11 +87,17 @@ def create_teacher(
             status_code=status.HTTP_409_CONFLICT,
             detail={"code": "CONFLICT", "message": f"Username '{body.username}' already exists."},
         )
-    user = User(username=body.username, password_hash=hash_password(body.password), role="teacher")
+    is_active = True if body.active is None else body.active
+    user = User(username=body.username, password_hash=hash_password(body.password), role="teacher", active=is_active)
     db.add(user)
     db.flush()
     teacher = Teacher(user_id=user.id, display_name=body.display_name)
     db.add(teacher)
+    db.flush()
+    if body.classroom_id:
+        cls = db.get(Classroom, body.classroom_id)
+        if cls:
+            db.add(TeacherClassroom(teacher_id=teacher.id, classroom_id=body.classroom_id))
     db.commit()
     db.refresh(teacher)
     return _teacher_to_out(teacher)
@@ -106,9 +124,30 @@ def update_teacher(
         teacher.display_name = body.display_name
     if body.active is not None:
         teacher.user.active = body.active
+    if body.classroom_id is not None:
+        db.query(TeacherClassroom).filter_by(teacher_id=teacher.id).delete()
+        if body.classroom_id > 0 and db.get(Classroom, body.classroom_id):
+            db.add(TeacherClassroom(teacher_id=teacher.id, classroom_id=body.classroom_id))
     db.commit()
     db.refresh(teacher)
     return _teacher_to_out(teacher)
+
+
+@router.delete("/teachers/{teacher_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_teacher(
+    teacher_id: int,
+    current_user: User = Depends(require_admin),
+    db: DBSession = Depends(get_db),
+) -> None:
+    """Deactivate teacher account (admin only). Admin cannot delete themselves."""
+    teacher = _get_teacher_or_404(db, teacher_id)
+    if teacher.user_id == current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": "BAD_REQUEST", "message": "Admin cannot delete their own account."},
+        )
+    teacher.user.active = False
+    db.commit()
 
 
 @router.post("/teachers/{teacher_id}/assign-classroom", status_code=status.HTTP_204_NO_CONTENT)

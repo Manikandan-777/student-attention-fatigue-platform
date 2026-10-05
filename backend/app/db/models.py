@@ -165,6 +165,14 @@ class Session(Base):
     alerts = relationship("Alert", back_populates="session", cascade="all, delete-orphan")
     track_roster = relationship("TrackRosterMap", back_populates="session", cascade="all, delete-orphan")
 
+    @property
+    def class_name(self) -> Optional[str]:
+        return self.classroom.class_name if self.classroom else None
+
+    @property
+    def room_name(self) -> Optional[str]:
+        return self.classroom.room_name if self.classroom else None
+
     __table_args__ = (
         CheckConstraint(
             "status IN ('Scheduled','Monitoring','Completed','Aborted')",

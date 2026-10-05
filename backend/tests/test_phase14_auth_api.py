@@ -334,6 +334,25 @@ class TestTeachers:
                             headers=_auth(token))
         assert resp2.status_code == 409
 
+    def test_delete_teacher_deactivates_and_blocks_login(self, client):
+        db = TestSessionLocal()
+        _seed_admin(db)
+        db.close()
+        token = _login(client, "admin", "adminpass")
+        resp = client.post("/teachers",
+                           json={"username": "to_delete", "password": "pass123", "display_name": "Delete Me"},
+                           headers=_auth(token))
+        assert resp.status_code == 201
+        teacher_id = resp.json()["id"]
+
+        # Delete teacher
+        del_resp = client.delete(f"/teachers/{teacher_id}", headers=_auth(token))
+        assert del_resp.status_code == 204
+
+        # Teacher can no longer log in
+        login_resp = client.post("/auth/login", json={"username": "to_delete", "password": "pass123"})
+        assert login_resp.status_code == 401
+
 
 # ---------------------------------------------------------------------------
 # Sessions with teacher-classroom scoping

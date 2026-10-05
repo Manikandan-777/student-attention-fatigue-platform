@@ -392,6 +392,14 @@ class VideoPipeline:
         # Compute average attention score
         avg_att = round(float(np.mean(attention_scores)), 1) if attention_scores else 0.0
 
+        # Compute class_fatigue_pct: 100 * average fatigue_index of students whose fatigue status is not "Unknown"
+        usable_fatigues = [
+            t.get("fatigue_index", 0.0)
+            for t in track_results
+            if t.get("fatigue_status") != "Unknown" and t.get("fatigue_index") is not None
+        ]
+        class_fatigue_pct = round(float(100.0 * np.mean(usable_fatigues)), 1) if usable_fatigues else None
+
         # Construct ClassSnapshot (contracts.md §2.4)
         snapshot = {
             "session_id": self.session_id,
@@ -400,6 +408,7 @@ class VideoPipeline:
             "students_detected": len(tracked_faces),
             "counts": counts,
             "avg_attention_score": avg_att,
+            "class_fatigue_pct": class_fatigue_pct,
             "open_alerts": len(all_emitted_alerts),
         }
 
