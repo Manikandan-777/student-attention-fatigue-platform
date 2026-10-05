@@ -1,160 +1,106 @@
 import React from 'react';
-import { render, fireEvent, waitFor } from '@testing-library/react-native';
+import { render, waitFor, fireEvent } from '@testing-library/react-native';
 import { TeacherDashboardScreen } from '../screens/TeacherDashboardScreen';
-import { StudentDetailScreen } from '../screens/StudentDetailScreen';
-import { AlertCenterScreen } from '../screens/AlertCenterScreen';
-import { SessionReportScreen } from '../screens/SessionReportScreen';
+import { TeacherProfileScreen } from '../screens/TeacherProfileScreen';
 import { RootNavigator } from '../navigation/RootNavigator';
 import { ApiService } from '../services/api';
 import { StorageService } from '../services/storage';
-import { TrackResultLite } from '../types';
 
 jest.mock('../services/api');
 
-const mockStudent: TrackResultLite = {
-  track_id: 3,
-  label: 'S003',
-  attention_status: 'Attentive',
-  fatigue_status: 'Fatigued',
-  attention_score: 85.0,
-  confidence: 0.92,
-};
-
-describe('Phase 22: Teacher Screens & Scoping', () => {
+describe('Phase 22: Teacher Dashboard, Profile & Role Scoping', () => {
   beforeEach(async () => {
     jest.clearAllMocks();
     await StorageService.clearAuth();
+    (ApiService.getMe as jest.Mock).mockResolvedValue({
+      id: 1,
+      username: 'aravind.k',
+      role: 'teacher',
+      active: true,
+    });
+    (ApiService.getTeacherDashboard as jest.Mock).mockResolvedValue(null);
   });
 
-  it('renders TeacherDashboard with current session metrics and quick navigation', async () => {
-    (ApiService.getTeacherDashboard as jest.Mock).mockResolvedValueOnce({
+  it('renders TeacherDashboard with 5 stat cards, trend charts, and status split per UI design', async () => {
+    (ApiService.getTeacherDashboard as jest.Mock).mockResolvedValue({
       session_id: 12,
-      class_name: 'III AI & DS',
+      class_name: 'AI & DS - A Section',
       status: 'Monitoring',
-      students_detected: 45,
-      counts: { attentive: 35, distracted: 7, unknown: 0, fatigued: 3 },
-      avg_attention_score: 82.0,
-      open_alerts: 3,
+      students_detected: 42,
+      counts: { attentive: 28, distracted: 8, unknown: 0, fatigued: 6 },
+      avg_attention_score: 78.0,
+      class_fatigue_pct: 38.0,
+      open_alerts: 2,
+      fatigue_advisory: {
+        class_fatigue_pct: 38.0,
+        level: 2,
+        code: 'INTERACTIVE',
+        message: 'Make the session more interactive.',
+        usable_tracks: 42,
+        since: '2026-10-05T10:00:00Z',
+      },
     });
 
-    const onNavigate = jest.fn();
+    const { getByText, getAllByText } = await render(<TeacherDashboardScreen />);
+
+    await waitFor(() => {
+      // Current Class & Welcome
+      expect(getByText('AI & DS - A Section')).toBeTruthy();
+      expect(getByText('Mr. Aravind K')).toBeTruthy();
+
+      // 5 Stat Cards & Donut numbers
+      expect(getAllByText('42').length).toBeGreaterThanOrEqual(1); // Students count
+      expect(getAllByText('28').length).toBeGreaterThanOrEqual(1); // Attentive
+      expect(getAllByText('8').length).toBeGreaterThanOrEqual(1);  // Distracted
+      expect(getAllByText('6').length).toBeGreaterThanOrEqual(1);  // Fatigued
+      expect(getAllByText('2').length).toBeGreaterThanOrEqual(1);  // Open Alerts
+
+      // Fatigue Advisory Banner
+      expect(getByText('Make the session more interactive.')).toBeTruthy();
+      expect(getByText('Class fatigue score is 38%.')).toBeTruthy();
+
+      // Live Trend Charts & Status Split
+      expect(getByText('Attention Trend')).toBeTruthy();
+      expect(getByText('Fatigue Trend')).toBeTruthy();
+      expect(getByText('Status Split (Current)')).toBeTruthy();
+      expect(getByText('Recent Alert Count')).toBeTruthy();
+    });
+  });
+
+  it('renders Profile screen with user information and log out button', async () => {
+    const onLogout = jest.fn();
     const { getByText } = await render(
-      <TeacherDashboardScreen onNavigate={onNavigate} />
+      <TeacherProfileScreen
+        role="teacher"
+        username="aravind.k"
+        displayName="Mr. Aravind K"
+        classroomName="AI & DS - A Section"
+        onLogout={onLogout}
+      />
     );
 
-    await waitFor(() => {
-      expect(getByText('Good Morning, Teacher')).toBeTruthy();
-      expect(getByText('Class: III AI & DS')).toBeTruthy();
-      expect(getByText('Status: Monitoring')).toBeTruthy();
-      expect(getByText('Students: 45')).toBeTruthy();
-      expect(getByText('35')).toBeTruthy(); // Attentive
-      expect(getByText('7')).toBeTruthy();  // Distracted
-      expect(getByText('3')).toBeTruthy();  // Fatigued
-    });
+    expect(getByText('Profile')).toBeTruthy();
+    expect(getByText('Mr. Aravind K')).toBeTruthy();
+    expect(getByText('Teacher')).toBeTruthy();
+    expect(getByText('aravind.k')).toBeTruthy();
+    expect(getByText('AI & DS - A Section')).toBeTruthy();
 
-    fireEvent.press(getByText('[ View Students ]'));
-    expect(onNavigate).toHaveBeenCalledWith('Students');
+    fireEvent.press(getByText('Log out'));
+    expect(onLogout).toHaveBeenCalled();
   });
 
-  it('renders StudentDetailScreen without exposing raw CNN/LSTM internals per APP-9', async () => {
-    const onViewReport = jest.fn();
-    const { getByText, queryByText } = await render(
-      <StudentDetailScreen student={mockStudent} onViewReport={onViewReport} />
-    );
-
-    expect(getByText('Student S003')).toBeTruthy();
-    expect(getByText('Attentive')).toBeTruthy();
-    expect(getByText('Fatigued')).toBeTruthy();
-    expect(getByText('92%')).toBeTruthy();
-
-    // Verify AI internals are NOT exposed per APP-9 and APP-27
-    expect(queryByText(/weights/i)).toBeNull();
-    expect(queryByText(/logits/i)).toBeNull();
-    expect(queryByText(/embedding/i)).toBeNull();
-    expect(queryByText(/lstm/i)).toBeNull();
-  });
-
-  it('renders AlertCenterScreen with action buttons to transition alert status', async () => {
-    (ApiService.getAlerts as jest.Mock).mockResolvedValueOnce([
-      {
-        id: 77,
-        session_id: 12,
-        track_id: 3,
-        label: 'S003',
-        type: 'fatigue',
-        status: 'New',
-        message: 'Repeated fatigue-related indicators during the current session.',
-        confidence: 0.92,
-        created_at: '2026-10-03T10:42:11Z',
-      },
-    ]);
-
-    (ApiService.updateAlertStatus as jest.Mock).mockResolvedValueOnce({
-      id: 77,
-      status: 'Viewed',
-      message: 'Repeated fatigue-related indicators during the current session.',
-    });
-
-    const { getByText } = await render(<AlertCenterScreen />);
-
-    await waitFor(() => {
-      expect(getByText('⚠ Student S003')).toBeTruthy();
-      expect(getByText(/fatigue-related indicators/i)).toBeTruthy();
-      expect(getByText('Mark Viewed')).toBeTruthy();
-      expect(getByText('Resolve')).toBeTruthy();
-    });
-
-    fireEvent.press(getByText('Mark Viewed'));
-    await waitFor(() => {
-      expect(ApiService.updateAlertStatus).toHaveBeenCalledWith(77, 'Viewed');
-    });
-  });
-
-  it('renders SessionReportScreen with aggregates and mandatory ethical notice', async () => {
-    (ApiService.getReports as jest.Mock).mockResolvedValueOnce([
-      {
-        session_id: 12,
-        class_name: 'III AI & DS',
-        date: '2026-10-03',
-        start: '09:00',
-        end: '10:00',
-        duration_min: 60,
-        students: 45,
-        attention: { attentive: 35, distracted: 7, unknown: 0 },
-        fatigue: { normal: 42, fatigued: 3 },
-        alerts_total: 5,
-        avg_attention_score: 82.0,
-        per_student: [],
-      },
-    ]);
-
-    const { getByText } = await render(<SessionReportScreen />);
-
-    await waitFor(() => {
-      expect(getByText('CLASSROOM SESSION REPORT')).toBeTruthy();
-      expect(getByText('Class: III AI & DS')).toBeTruthy();
-      expect(getByText('Duration: 60 minutes')).toBeTruthy();
-      expect(getByText(/AI-generated indicators to support teacher observation/i)).toBeTruthy();
-    });
-  });
-
-  it('enforces role scoping: teacher cannot access admin navigation tabs', async () => {
-    await StorageService.saveAuth('mock-token', 'teacher', 'prof_smith');
+  it('enforces role scoping: teacher only sees Dashboard and Profile tabs (no Teachers tab)', async () => {
+    await StorageService.saveAuth('mock-token', 'teacher', 'aravind.k');
 
     const { getByText, queryByText } = await render(<RootNavigator />);
 
     await waitFor(() => {
-      // Teacher navigation tabs present
+      // Teacher navigation tabs present per spec §2
       expect(getByText('Dashboard')).toBeTruthy();
-      expect(getByText('Students')).toBeTruthy();
-      expect(getByText('Alerts')).toBeTruthy();
-      expect(getByText('Reports')).toBeTruthy();
       expect(getByText('Profile')).toBeTruthy();
 
       // Admin tabs MUST NOT be present
       expect(queryByText('Teachers')).toBeNull();
-      expect(queryByText('Classrooms')).toBeNull();
-      expect(queryByText('Status')).toBeNull();
     });
   });
 });

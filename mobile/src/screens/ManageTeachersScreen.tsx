@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -55,6 +55,8 @@ export const ManageTeachersScreen: React.FC = () => {
   const [deleteModalVisible, setDeleteModalVisible] = useState(false);
   const [teacherToDelete, setTeacherToDelete] = useState<Teacher | null>(null);
 
+  const formValuesRef = useRef({ name: '', username: '', password: '' });
+
   const fetchInitialData = async () => {
     setLoading(true);
     try {
@@ -76,6 +78,7 @@ export const ManageTeachersScreen: React.FC = () => {
   }, []);
 
   const openAddMode = () => {
+    formValuesRef.current = { name: '', username: '', password: '' };
     setFormDisplayName('');
     setFormUsername('');
     setFormPassword('');
@@ -88,6 +91,7 @@ export const ManageTeachersScreen: React.FC = () => {
 
   const openEditMode = (teacher: Teacher) => {
     setSelectedTeacher(teacher);
+    formValuesRef.current = { name: teacher.display_name, username: teacher.username, password: '' };
     setFormDisplayName(teacher.display_name);
     setFormUsername(teacher.username);
     setFormPassword('');
@@ -99,7 +103,11 @@ export const ManageTeachersScreen: React.FC = () => {
   };
 
   const handleCreateTeacher = async () => {
-    if (!formDisplayName.trim() || !formUsername.trim() || !formPassword.trim()) {
+    const displayName = (formDisplayName || formValuesRef.current.name).trim();
+    const username = (formUsername || formValuesRef.current.username).trim();
+    const password = (formPassword || formValuesRef.current.password).trim();
+
+    if (!displayName || !username || !password) {
       setFormError('Please enter full name, username, and password.');
       return;
     }
@@ -109,9 +117,9 @@ export const ManageTeachersScreen: React.FC = () => {
 
     try {
       const created = await ApiService.createTeacher({
-        display_name: formDisplayName.trim(),
-        username: formUsername.trim(),
-        password: formPassword.trim(),
+        display_name: displayName,
+        username: username,
+        password: password,
         classroom_id: formClassroomId || undefined,
         active: formActive,
       });
@@ -210,7 +218,10 @@ export const ManageTeachersScreen: React.FC = () => {
         <Text style={styles.fieldLabel}>Full Name</Text>
         <TextInput
           value={formDisplayName}
-          onChangeText={setFormDisplayName}
+          onChangeText={(text) => {
+            formValuesRef.current.name = text;
+            setFormDisplayName(text);
+          }}
           placeholder="Enter full name"
           placeholderTextColor="#94A3B8"
           style={styles.textInput}
@@ -220,7 +231,10 @@ export const ManageTeachersScreen: React.FC = () => {
         <Text style={styles.fieldLabel}>Username</Text>
         <TextInput
           value={formUsername}
-          onChangeText={setFormUsername}
+          onChangeText={(text) => {
+            formValuesRef.current.username = text;
+            setFormUsername(text);
+          }}
           placeholder="Enter username"
           autoCapitalize="none"
           placeholderTextColor="#94A3B8"
@@ -232,7 +246,10 @@ export const ManageTeachersScreen: React.FC = () => {
         <View style={styles.passwordInputContainer}>
           <TextInput
             value={formPassword}
-            onChangeText={setFormPassword}
+            onChangeText={(text) => {
+              formValuesRef.current.password = text;
+              setFormPassword(text);
+            }}
             placeholder="Enter password"
             secureTextEntry={!showPassword}
             placeholderTextColor="#94A3B8"
@@ -269,6 +286,9 @@ export const ManageTeachersScreen: React.FC = () => {
 
         {/* Create Teacher Button */}
         <TouchableOpacity
+          testID="btn-create-teacher"
+          accessibilityRole="button"
+          accessibilityLabel="Create Teacher"
           style={styles.submitBtn}
           onPress={handleCreateTeacher}
           disabled={submitting}
@@ -435,6 +455,7 @@ export const ManageTeachersScreen: React.FC = () => {
           <Text style={styles.headerTitle}>Teachers</Text>
         </View>
         <TouchableOpacity
+          testID="btn-add-teacher"
           style={styles.addPillBtn}
           onPress={openAddMode}
           activeOpacity={0.8}

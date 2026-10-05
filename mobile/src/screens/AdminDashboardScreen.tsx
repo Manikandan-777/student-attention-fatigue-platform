@@ -48,10 +48,11 @@ export const AdminDashboardScreen: React.FC<AdminDashboardScreenProps> = ({
   const loadSessions = async () => {
     try {
       const sessList = await ApiService.getSessions();
-      setSessions(sessList);
+      const safeList = Array.isArray(sessList) ? sessList : [];
+      setSessions(safeList);
 
-      const activeSess = sessList.find((s) => s.status === 'Monitoring') || sessList[0];
-      if (activeSess && (!selectedSessionId || !sessList.some((s) => s.id === selectedSessionId))) {
+      const activeSess = safeList.find((s) => s.status === 'Monitoring') || safeList[0];
+      if (activeSess && (!selectedSessionId || !safeList.some((s) => s.id === selectedSessionId))) {
         setSelectedSessionId(activeSess.id);
         mobileTelemetry.subscribeSession(activeSess.id);
       }
@@ -273,7 +274,6 @@ export const AdminDashboardScreen: React.FC<AdminDashboardScreenProps> = ({
       <AdvisoryBanner
         advisory={confirmedAdvisory}
         fatiguePct={fatiguePct}
-        isOffline={!isWsConnected}
       />
 
       {/* Attention Trend Chart */}

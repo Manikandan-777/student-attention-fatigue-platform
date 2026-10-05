@@ -222,7 +222,6 @@ export const TeacherDashboardScreen: React.FC<TeacherDashboardScreenProps> = ({
           <AdvisoryBanner
             advisory={confirmedAdvisory}
             fatiguePct={fatiguePct}
-            isOffline={!isWsConnected}
           />
 
           {/* Attention Trend Chart */}

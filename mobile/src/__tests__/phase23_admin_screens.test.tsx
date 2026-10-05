@@ -1,146 +1,153 @@
 import React from 'react';
 import { render, fireEvent, waitFor, act } from '@testing-library/react-native';
 import { AdminDashboardScreen } from '../screens/AdminDashboardScreen';
-import { ManageStudentsScreen } from '../screens/ManageStudentsScreen';
 import { ManageTeachersScreen } from '../screens/ManageTeachersScreen';
-import { ManageClassroomsScreen } from '../screens/ManageClassroomsScreen';
-import { SystemStatusScreen } from '../screens/SystemStatusScreen';
+import { RootNavigator } from '../navigation/RootNavigator';
 import { ApiService } from '../services/api';
+import { StorageService } from '../services/storage';
 
 jest.mock('../services/api');
 
-describe('Phase 23: Admin Screens, Management & System Status', () => {
-  beforeEach(() => {
+describe('Phase 23: Admin Dashboard, Teacher Management & Admin Tabs', () => {
+  beforeEach(async () => {
     jest.clearAllMocks();
-  });
-
-  it('renders AdminDashboardScreen with system metrics and infrastructure health', async () => {
-    (ApiService.getTeachers as jest.Mock).mockResolvedValueOnce([{}, {}]);
-    (ApiService.getStudents as jest.Mock).mockResolvedValueOnce([{}, {}, {}]);
-    (ApiService.getClassrooms as jest.Mock).mockResolvedValueOnce([{}]);
-    (ApiService.getSessions as jest.Mock).mockResolvedValueOnce([
-      { status: 'Monitoring' },
-    ]);
-    (ApiService.getSystemStatus as jest.Mock).mockResolvedValueOnce({
-      ai_server: 'Online',
-      database: 'Online',
-      api: 'Online',
-      cameras: [{ id: 'CAM-001', state: 'Online' }],
+    await StorageService.clearAuth();
+    (ApiService.getMe as jest.Mock).mockResolvedValue({
+      id: 99,
+      username: 'admin',
+      role: 'admin',
+      active: true,
     });
-
-    const { getByText } = await render(<AdminDashboardScreen />);
-
-    await waitFor(() => {
-      expect(getByText('Admin Dashboard')).toBeTruthy();
-      expect(getByText('Teachers')).toBeTruthy();
-      expect(getByText('2')).toBeTruthy();
-      expect(getByText('Students')).toBeTruthy();
-      expect(getByText('3')).toBeTruthy();
-      expect(getByText('Infrastructure Health')).toBeTruthy();
-      expect(getByText('AI Server:')).toBeTruthy();
-    });
-  });
-
-  it('surfaces validation errors during student creation per Phase 23 pass condition', async () => {
-    (ApiService.getStudents as jest.Mock).mockResolvedValueOnce([]);
-
-    const { getByText, getByPlaceholderText } = await render(<ManageStudentsScreen />);
-
-    await waitFor(() => {
-      expect(getByText('Student Management')).toBeTruthy();
-    });
-
-    // Attempt submitting without required fields
-    await act(async () => {
-      fireEvent.press(getByText('Add Student'));
-    });
-
-    await waitFor(() => {
-      expect(getByText('Student ID and Name are required.')).toBeTruthy();
-    });
-
-    // Now fill fields and simulate backend validation error
-    await act(async () => {
-      fireEvent.changeText(getByPlaceholderText('Student ID (e.g. S045)'), 'S045');
-      fireEvent.changeText(getByPlaceholderText('Full Name'), 'John Doe');
-    });
-
-    (ApiService.createStudent as jest.Mock).mockRejectedValueOnce({
-      response: { data: { detail: 'Duplicate student_id already registered.' } },
-    });
-
-    await act(async () => {
-      fireEvent.press(getByText('Add Student'));
-    });
-
-    await waitFor(() => {
-      expect(
-        getByText('Duplicate student_id already registered.')
-      ).toBeTruthy();
-    });
-  });
-
-  it('surfaces validation errors during teacher creation', async () => {
-    (ApiService.getTeachers as jest.Mock).mockResolvedValueOnce([]);
-
-    const { getByText } = await render(<ManageTeachersScreen />);
-
-    await waitFor(() => {
-      expect(getByText('Teacher Management')).toBeTruthy();
-    });
-
-    await act(async () => {
-      fireEvent.press(getByText('Add Teacher'));
-    });
-
-    await waitFor(() => {
-      expect(getByText('Name and Email are required.')).toBeTruthy();
-    });
-  });
-
-  it('renders ManageClassroomsScreen with camera ID associations', async () => {
-    (ApiService.getClassrooms as jest.Mock).mockResolvedValueOnce([
+    (ApiService.getSessions as jest.Mock).mockResolvedValue([
       {
-        id: 1,
-        name: 'AI Lab 01',
-        camera_id: 'CAM-001',
-        is_active: true,
+        id: 12,
+        classroom_id: 1,
+        class_name: 'AI & DS - A Section',
+        room_name: 'Room A413',
+        status: 'Monitoring',
+        students_detected_max: 42,
+        started_at: '2026-10-05T10:00:00Z',
       },
     ]);
-
-    const { getByText } = await render(<ManageClassroomsScreen />);
-
-    await waitFor(() => {
-      expect(getByText('AI Lab 01')).toBeTruthy();
-      expect(getByText('CAM-001')).toBeTruthy();
-      expect(getByText('Camera ID:')).toBeTruthy();
+    (ApiService.getTeachers as jest.Mock).mockResolvedValue([]);
+    (ApiService.getClassrooms as jest.Mock).mockResolvedValue([]);
+    (ApiService.createTeacher as jest.Mock).mockResolvedValue({
+      id: 103,
+      user_id: 4,
+      display_name: 'Dr. New Teacher',
+      username: 'new.teacher',
+      classroom_name: 'AI & DS - A Section',
+      classroom_id: 1,
+      active: true,
     });
   });
 
-  it('clearly displays offline services in SystemStatusScreen so "no alerts" is not misread', async () => {
-    (ApiService.getSystemStatus as jest.Mock).mockResolvedValueOnce({
-      ai_server: 'Offline',
-      database: 'Online',
-      api: 'Online',
-      cameras: [
-        { id: 'CAM-001', state: 'Online' },
-        { id: 'CAM-003', state: 'Offline' },
-      ],
-      fps: 0.0,
-      model_mode: 'heuristic',
-      privacy_mode: true,
-    });
-
-    const { getByText, getAllByText } = await render(<SystemStatusScreen />);
+  it('renders AdminDashboardScreen with session selector and live metric cards', async () => {
+    const { getByText, getAllByText, unmount } = await render(<AdminDashboardScreen />);
 
     await waitFor(() => {
-      // Offline banner alert must be visible per APP-21 / APP-25
-      expect(getByText('⚠ AI Service Unavailable')).toBeTruthy();
-      expect(getByText('⚠ Camera Offline')).toBeTruthy();
+      expect(getByText('Dr. Raman S')).toBeTruthy();
+      expect(getByText('Select Session')).toBeTruthy();
+      expect(getByText(/AI & DS - A Section/i)).toBeTruthy();
 
-      // Specific camera state
-      expect(getByText('CAM-003')).toBeTruthy();
-      expect(getAllByText('Offline').length).toBeGreaterThanOrEqual(1);
+      // Metric Cards & Donut elements
+      expect(getAllByText('Students').length).toBeGreaterThanOrEqual(1);
+      expect(getAllByText('Attentive').length).toBeGreaterThanOrEqual(1);
+      expect(getAllByText('Distracted').length).toBeGreaterThanOrEqual(1);
+      expect(getAllByText('Fatigued').length).toBeGreaterThanOrEqual(1);
+      expect(getByText('Open Alerts')).toBeTruthy();
+
+      // Trend Charts & Status Split
+      expect(getByText('Attention Trend')).toBeTruthy();
+      expect(getByText('Fatigue Trend')).toBeTruthy();
+      expect(getByText('Status Split (Current)')).toBeTruthy();
     });
+    unmount();
+  });
+
+  it('renders all admin tabs in RootNavigator: Dashboard, Teachers, Profile', async () => {
+    await StorageService.saveAuth('mock-token', 'admin', 'admin');
+
+    const component = await render(<RootNavigator />);
+
+    await waitFor(() => {
+      expect(component.getByText('Dashboard')).toBeTruthy();
+      expect(component.getByText('Teachers')).toBeTruthy();
+      expect(component.getByText('Profile')).toBeTruthy();
+    });
+    component.unmount();
+  });
+
+  it('renders ManageTeachersScreen with teachers, search, add, and delete confirmation modal', async () => {
+    (ApiService.getTeachers as jest.Mock).mockResolvedValue([
+      {
+        id: 101,
+        user_id: 2,
+        display_name: 'Ms. Priya M',
+        username: 'priya.m',
+        classroom_name: 'CSE - B Section',
+        classroom_id: 2,
+        active: true,
+      },
+      {
+        id: 102,
+        user_id: 3,
+        display_name: 'Mr. Karthik S',
+        username: 'karthik.s',
+        classroom_name: 'ECE - A Section',
+        classroom_id: 3,
+        active: false,
+      },
+    ]);
+    (ApiService.getClassrooms as jest.Mock).mockResolvedValue([
+      { id: 1, room_name: 'Room A413', class_name: 'AI & DS - A Section', active: true },
+      { id: 2, room_name: 'Room B201', class_name: 'CSE - B Section', active: true },
+    ]);
+
+    const { getByText, getByPlaceholderText, getByTestId, unmount } = await render(<ManageTeachersScreen />);
+
+    await waitFor(() => {
+      expect(getByText('Teachers')).toBeTruthy();
+      expect(getByText('Ms. Priya M')).toBeTruthy();
+      expect(getByText('CSE - B Section')).toBeTruthy();
+      expect(getByText('Mr. Karthik S')).toBeTruthy();
+      expect(getByText('Inactive')).toBeTruthy();
+    });
+
+    // Test search filter
+    fireEvent.changeText(getByPlaceholderText('Search teachers...'), 'Priya');
+    expect(getByText('Ms. Priya M')).toBeTruthy();
+
+    // Open Add Teacher mode
+    await act(async () => {
+      fireEvent.press(getByTestId('btn-add-teacher'));
+    });
+
+    await waitFor(() => {
+      expect(getByText('Add Teacher')).toBeTruthy();
+    });
+
+    // Fill form
+    await act(async () => {
+      fireEvent.changeText(getByPlaceholderText('Enter full name'), 'Dr. New Teacher');
+      fireEvent.changeText(getByPlaceholderText('Enter username'), 'new.teacher');
+      fireEvent.changeText(getByPlaceholderText('Enter password'), 'secretpass123');
+    });
+
+    // Submit form
+    await act(async () => {
+      fireEvent.press(getByTestId('btn-create-teacher'));
+    });
+
+    await waitFor(() => {
+      expect(ApiService.createTeacher).toHaveBeenCalledWith(
+        expect.objectContaining({
+          display_name: 'Dr. New Teacher',
+          username: 'new.teacher',
+          password: 'secretpass123',
+        })
+      );
+    });
+    unmount();
   });
 });

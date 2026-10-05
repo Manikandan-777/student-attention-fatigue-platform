@@ -17,6 +17,22 @@ jest.mock('expo-secure-store', () => {
   };
 });
 
+// Mock lucide-react-native icons for Jest environment
+jest.mock('lucide-react-native', () => {
+  const React = require('react');
+  const { View } = require('react-native');
+  return new Proxy(
+    {},
+    {
+      get: (_, prop) => {
+        const MockIcon = (props: any) => React.createElement(View, { testID: `icon-${String(prop)}`, ...props });
+        MockIcon.displayName = String(prop);
+        return MockIcon;
+      },
+    }
+  );
+});
+
 // Mock WebSocket for tests
 class MockWebSocket {
   static OPEN = 1;

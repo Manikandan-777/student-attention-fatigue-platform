@@ -61,4 +61,8 @@ export const StorageService = {
       }
     }
   },
+
+  async clearAll(): Promise<void> {
+    return this.clearAuth();
+  },
 };
