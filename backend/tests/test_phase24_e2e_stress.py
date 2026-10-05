@@ -26,6 +26,7 @@ from app.config import settings
 from app.db.database import Base
 from app.db.models import Alert, Classroom, Observation, Session
 from app.main import app
+from app.auth.jwt import create_access_token
 from app.reports.builder import build_session_report, export_csv
 from app.ws.manager import ws_manager
 from ai.temporal import TemporalManager
@@ -137,10 +138,11 @@ def test_multi_client_websocket_broadcast_load():
     """Verify concurrent WebSocket telemetry subscribers under broadcast load without packet drop."""
     num_messages = 20
 
+    token = create_access_token("admin", "admin")
     with TestClient(app) as client:
-        with client.websocket_connect("/ws/telemetry") as ws1, \
-             client.websocket_connect("/ws/telemetry") as ws2, \
-             client.websocket_connect("/ws/telemetry") as ws3:
+        with client.websocket_connect(f"/ws/telemetry?token={token}") as ws1, \
+             client.websocket_connect(f"/ws/telemetry?token={token}") as ws2, \
+             client.websocket_connect(f"/ws/telemetry?token={token}") as ws3:
 
             # All 3 clients subscribe to session 999
             ws1.send_json({"type": "subscribe", "session_id": 999})

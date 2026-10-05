@@ -29,6 +29,9 @@ from app.api.sessions import router as sessions_router
 from app.api.system import router as system_router
 from app.api.alerts import router as alerts_router
 from app.api.reports import router as reports_router
+from app.api.camera import router as camera_router
+from app.api.devices import router as devices_router
+from app.ws.live_camera import router as live_camera_router
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("app.main")
@@ -38,6 +41,29 @@ logger = logging.getLogger("app.main")
 async def lifespan(app: FastAPI):
     """Application lifespan context manager."""
     create_tables()   # ensure schema exists (Alembic handles prod migrations)
+    # Ensure default users exist for console login
+    from app.db.database import SessionLocal
+    from app.db.models import User
+    from app.auth.jwt import hash_password
+    db_init = SessionLocal()
+    try:
+        if not db_init.query(User).filter_by(username="admin").first():
+            db_init.add(User(username="admin", password_hash=hash_password("adminpass"), role="admin", active=True))
+        if not db_init.query(User).filter_by(username="teacher").first():
+            db_init.add(User(username="teacher", password_hash=hash_password("teachpass"), role="teacher", active=True))
+        db_init.commit()
+    except Exception as exc:
+        logger.warning("Could not auto-seed default users: %s", exc)
+    finally:
+        db_init.close()
+
+    import asyncio
+    from app.camera.service import live_camera_service
+    try:
+        live_camera_service.set_event_loop(asyncio.get_running_loop())
+    except Exception as exc:
+        logger.warning("Could not register event loop for live_camera_service: %s", exc)
+
     logger.info(
         "Booting Student Attention & Fatigue Detection API (Privacy Mode: %s)...",
         settings.PRIVACY_MODE,
@@ -86,6 +112,9 @@ app.include_router(sessions_router)
 app.include_router(system_router)
 app.include_router(alerts_router)
 app.include_router(reports_router)
+app.include_router(camera_router)
+app.include_router(devices_router)
+app.include_router(live_camera_router)
 
 
 def _is_origin_allowed(origin: Optional[str]) -> bool:

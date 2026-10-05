@@ -10,7 +10,7 @@ Implements APP-2/3, CON §3:
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Query, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 import jwt
 from jwt.exceptions import PyJWTError as JWTError
@@ -125,13 +125,15 @@ _CREDENTIALS_EXCEPTION = HTTPException(
 
 def get_current_user(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(_bearer),
+    token: Optional[str] = Query(None),
     db: DBSession = Depends(get_db),
 ) -> User:
     """Dependency: decode JWT, load User from DB. Raises 401 on any failure."""
-    if not credentials:
+    raw_token = credentials.credentials if credentials else token
+    if not raw_token:
         raise _CREDENTIALS_EXCEPTION
     try:
-        payload = decode_access_token(credentials.credentials)
+        payload = decode_access_token(raw_token)
         username: str = payload.get("sub", "")
         if not username:
             raise _CREDENTIALS_EXCEPTION

@@ -13,6 +13,7 @@ import pytest
 from starlette.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
+from app.auth.jwt import create_access_token
 from app.config import settings
 from app.main import app
 from app.ws.manager import ws_manager
@@ -23,6 +24,11 @@ def client():
     """Test client fixture."""
     with TestClient(app) as c:
         yield c
+
+
+@pytest.fixture
+def auth_token():
+    return create_access_token("admin", "admin")
 
 
 def test_health_endpoint(client: TestClient):
@@ -38,18 +44,18 @@ def test_health_endpoint(client: TestClient):
     assert "timestamp" in data
 
 
-def test_telemetry_websocket_ping_pong(client: TestClient):
+def test_telemetry_websocket_ping_pong(client: TestClient, auth_token: str):
     """Verify /ws/telemetry heartbeat protocol."""
-    with client.websocket_connect("/ws/telemetry") as ws:
+    with client.websocket_connect(f"/ws/telemetry?token={auth_token}") as ws:
         # Send ping
         ws.send_json({"type": "ping"})
         response = ws.receive_json()
         assert response == {"type": "pong"}
 
 
-def test_telemetry_websocket_subscription(client: TestClient):
+def test_telemetry_websocket_subscription(client: TestClient, auth_token: str):
     """Verify /ws/telemetry session subscription handling."""
-    with client.websocket_connect("/ws/telemetry") as ws:
+    with client.websocket_connect(f"/ws/telemetry?token={auth_token}") as ws:
         # Subscribe to session 42
         ws.send_json({"type": "subscribe", "session_id": 42})
         response = ws.receive_json()
@@ -59,12 +65,12 @@ def test_telemetry_websocket_subscription(client: TestClient):
         assert response["status"] == "ok"
 
 
-def test_telemetry_concurrent_clients_and_broadcast(client: TestClient):
+def test_telemetry_concurrent_clients_and_broadcast(client: TestClient, auth_token: str):
     """Verify multiple concurrent clients receive broadcasted telemetry."""
     import asyncio
 
-    with client.websocket_connect("/ws/telemetry") as ws1, \
-         client.websocket_connect("/ws/telemetry") as ws2:
+    with client.websocket_connect(f"/ws/telemetry?token={auth_token}") as ws1, \
+         client.websocket_connect(f"/ws/telemetry?token={auth_token}") as ws2:
 
         # Both connect and subscribe to session 10
         ws1.send_json({"type": "subscribe", "session_id": 10})
@@ -99,12 +105,12 @@ def test_telemetry_concurrent_clients_and_broadcast(client: TestClient):
         assert msg2["snapshot"]["avg_attention_score"] == 88.5
 
 
-def test_video_websocket_refused_code_4403_in_privacy_mode(client: TestClient):
+def test_video_websocket_refused_code_4403_in_privacy_mode(client: TestClient, auth_token: str):
     """CRITICAL PRIVACY TEST: /ws/video must be rejected with close code 4403 when PRIVACY_MODE=true."""
     settings.PRIVACY_MODE = True
 
     with pytest.raises(WebSocketDisconnect) as exc_info:
-        with client.websocket_connect("/ws/video"):
+        with client.websocket_connect(f"/ws/video?token={auth_token}"):
             pass
 
     assert exc_info.value.code == 4403, (
@@ -112,11 +118,11 @@ def test_video_websocket_refused_code_4403_in_privacy_mode(client: TestClient):
     )
 
 
-def test_video_websocket_accepted_when_privacy_mode_false(client: TestClient):
+def test_video_websocket_accepted_when_privacy_mode_false(client: TestClient, auth_token: str):
     """Verify that when PRIVACY_MODE is explicitly disabled, /ws/video connects successfully."""
     settings.PRIVACY_MODE = False
     try:
-        with client.websocket_connect("/ws/video") as ws:
+        with client.websocket_connect(f"/ws/video?token={auth_token}") as ws:
             ws.send_json({"type": "ping"})
             resp = ws.receive_json()
             assert resp == {"type": "pong"}

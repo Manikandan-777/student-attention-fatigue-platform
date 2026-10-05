@@ -427,3 +427,23 @@ class TestReportsAPI:
         headers = _auth(role="admin", username="admin_rep")
         res = client.get(f"/reports/{sess.id}/export?format=docx", headers=headers)
         assert res.status_code == 422
+
+    def test_export_with_query_param_token(self, client):
+        db = TestSessionLocal()
+        _seed_admin(db)
+        _, sess = _seed_full_session(db)
+        db.close()
+
+        token = create_access_token(subject="admin_rep", role="admin")
+
+        # Export CSV via query param without Authorization header
+        res_csv = client.get(f"/reports/{sess.id}/export?format=csv&token={token}")
+        assert res_csv.status_code == 200
+        assert "text/csv" in res_csv.headers["content-type"]
+        assert MANDATORY_FOOTER in res_csv.text
+
+        # Export PDF via query param without Authorization header
+        res_pdf = client.get(f"/reports/{sess.id}/export?format=pdf&token={token}")
+        assert res_pdf.status_code == 200
+        assert "application/pdf" in res_pdf.headers["content-type"]
+
