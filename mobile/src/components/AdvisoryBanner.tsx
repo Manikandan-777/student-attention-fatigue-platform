@@ -1,198 +1,194 @@
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { CheckCircle2, MessageCircle, AlertTriangle, AlertOctagon, ChevronRight, HelpCircle } from 'lucide-react-native';
 import { THEME } from '../theme';
 import { FatigueAdvisory } from '../types';
 
 interface AdvisoryBannerProps {
   advisory?: FatigueAdvisory | null;
+  fatiguePct?: number | null;
   isOffline?: boolean;
-  isStale?: boolean;
+  onPress?: () => void;
 }
 
-const LEVEL_STYLE = {
-  1: {
-    icon: '✓',
-    color: THEME.colors.accentSuccess,
-    bg: THEME.colors.bgSuccess,
-    border: THEME.colors.accentSuccess,
-    tag: 'CONTINUE',
-  },
-  2: {
-    icon: '💬',
-    color: THEME.colors.accentPrimary,
-    bg: THEME.colors.bgInfo,
-    border: THEME.colors.accentPrimary,
-    tag: 'INTERACTIVE',
-  },
-  3: {
-    icon: '⚠',
-    color: THEME.colors.accentDanger,
-    bg: THEME.colors.bgSurface,
-    border: THEME.colors.accentDanger,
-    tag: 'SHORT_BREAK',
-  },
-  4: {
-    icon: '🛑',
-    color: THEME.colors.accentDanger,
-    bg: THEME.colors.bgSurface,
-    border: THEME.colors.accentDanger,
-    tag: 'RESCHEDULE',
-  },
-} as const;
+export function getFatigueMessage(pct: number): { level: 1 | 2 | 3 | 4; text: string } {
+  if (pct < 25) return { level: 1, text: 'Continue with the class.' };
+  if (pct < 50) return { level: 2, text: 'Make the session more interactive.' };
+  if (pct < 75) return { level: 3, text: 'Do a short activity or give a short break.' };
+  return { level: 4, text: 'Most students show fatigue indicators. Consider continuing the class tomorrow.' };
+}
 
 export const AdvisoryBanner: React.FC<AdvisoryBannerProps> = ({
   advisory,
+  fatiguePct,
   isOffline = false,
-  isStale = false,
+  onPress,
 }) => {
-  // If connection is offline, mark advisory as Stale or do not show false live state
+  // If offline
   if (isOffline) {
     return (
-      <View
-        accessibilityRole="alert"
-        accessibilityLiveRegion="polite"
-        style={[styles.banner, styles.staleBanner]}
-      >
-        <Text style={styles.staleTitle}>[Stale Advisory]</Text>
-        <Text style={styles.staleMessage}>
-          Live classroom telemetry disconnected. Advisory is currently paused.
-        </Text>
-      </View>
-    );
-  }
-
-  // If advisory is null / not enough data (fewer than 5 usable tracks)
-  if (!advisory) {
-    return (
-      <View
-        accessibilityRole="alert"
-        accessibilityLiveRegion="polite"
-        style={[styles.banner, styles.noDataBanner]}
-      >
-        <View style={styles.headerRow}>
-          <Text style={styles.noDataIcon}>?</Text>
-          <Text style={styles.noDataTitle}>Not enough data</Text>
+      <View style={[styles.container, styles.offlineContainer]}>
+        <View style={[styles.iconCircle, { backgroundColor: '#F1F5F9' }]}>
+          <HelpCircle size={18} color="#64748B" />
         </View>
-        <Text style={styles.noDataMessage}>
-          Awaiting at least 5 usable student tracks to compute class fatigue advisory.
-        </Text>
+        <View style={styles.textContainer}>
+          <Text style={styles.title}>Realtime telemetry disconnected</Text>
+          <Text style={styles.subtitle}>Showing latest available advisory</Text>
+        </View>
       </View>
     );
   }
 
-  const styleConfig = LEVEL_STYLE[advisory.level] || LEVEL_STYLE[1];
-  const pctRounded = Math.round(advisory.class_fatigue_pct);
+  // Determine score & level
+  const effectivePct = advisory?.class_fatigue_pct ?? fatiguePct;
+
+  if (effectivePct === undefined || effectivePct === null) {
+    return (
+      <View style={[styles.container, styles.emptyContainer]}>
+        <View style={[styles.iconCircle, { backgroundColor: '#F1F5F9' }]}>
+          <HelpCircle size={18} color="#64748B" />
+        </View>
+        <View style={styles.textContainer}>
+          <Text style={styles.title}>Not enough data</Text>
+          <Text style={styles.subtitle}>Observing classroom to compute fatigue advisory</Text>
+        </View>
+      </View>
+    );
+  }
+
+  const { level, text } = advisory?.message
+    ? { level: advisory.level, text: advisory.message }
+    : getFatigueMessage(effectivePct);
+
+  const roundedPct = Math.round(effectivePct);
+
+  const getLevelStyle = () => {
+    switch (level) {
+      case 1:
+        return {
+          bg: '#F0FDF4',
+          border: '#BBF7D0',
+          iconBg: '#DCFCE7',
+          iconColor: '#16A34A',
+          Icon: CheckCircle2,
+        };
+      case 2:
+        return {
+          bg: '#FEF3C7',
+          border: '#FDE68A',
+          iconBg: '#FCD34D',
+          iconColor: '#B45309',
+          Icon: MessageCircle,
+        };
+      case 3:
+        return {
+          bg: '#FEF3C7',
+          border: '#FCD34D',
+          iconBg: '#F59E0B',
+          iconColor: '#FFFFFF',
+          Icon: AlertTriangle,
+        };
+      case 4:
+      default:
+        return {
+          bg: '#FEE2E2',
+          border: '#FECACA',
+          iconBg: '#EF4444',
+          iconColor: '#FFFFFF',
+          Icon: AlertOctagon,
+        };
+    }
+  };
+
+  const styleConfig = getLevelStyle();
+  const IconComponent = styleConfig.Icon;
 
   return (
-    <View
-      role="alert"
-      accessibilityRole="alert"
-      accessibilityLiveRegion="polite"
+    <TouchableOpacity
+      activeOpacity={onPress ? 0.7 : 1}
+      onPress={onPress}
       style={[
-        styles.banner,
+        styles.container,
         {
           backgroundColor: styleConfig.bg,
           borderColor: styleConfig.border,
         },
       ]}
+      accessibilityRole="alert"
+      accessibilityLabel={`Advisory Level ${level}: ${text}. Class fatigue score is ${roundedPct}%.`}
     >
-      <View style={styles.headerRow}>
-        <Text style={[styles.levelIcon, { color: styleConfig.color }]}>
-          {styleConfig.icon}
-        </Text>
-        <Text style={[styles.levelLabel, { color: styleConfig.color }]}>
-          Level {advisory.level}: {styleConfig.tag}
-        </Text>
-        {isStale && <Text style={styles.staleTag}>(Stale)</Text>}
+      <View style={[styles.iconCircle, { backgroundColor: styleConfig.iconBg }]}>
+        <IconComponent size={18} color={styleConfig.iconColor} strokeWidth={2.4} />
       </View>
 
-      <Text style={styles.advisoryMessage}>{advisory.message}</Text>
-
-      <View style={styles.footerRow}>
-        <Text style={styles.scoreText}>
-          {pctRounded}% fatigue indicators ({advisory.usable_tracks} students observed)
+      <View style={styles.textContainer}>
+        <View style={styles.titleRow}>
+          <Text style={styles.title} numberOfLines={2}>
+            {text}
+          </Text>
+        </View>
+        <Text style={styles.subtitle}>
+          Class fatigue score is {roundedPct}%.
         </Text>
       </View>
-    </View>
+
+      <ChevronRight size={18} color="#94A3B8" style={styles.chevron} />
+    </TouchableOpacity>
   );
 };
 
 const styles = StyleSheet.create({
-  banner: {
+  container: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 14,
     borderWidth: 1,
-    borderRadius: THEME.radius.xl,
-    padding: THEME.spacing.space8,
-    marginVertical: THEME.spacing.space4,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    marginVertical: 10,
+    elevation: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 2,
   },
-  headerRow: {
-    flexDirection: 'row',
+  iconCircle: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     alignItems: 'center',
-    marginBottom: THEME.spacing.space2,
+    justifyContent: 'center',
+    marginRight: 10,
   },
-  levelIcon: {
-    fontSize: THEME.typography.sizes.base,
-    fontWeight: 'bold',
-    marginRight: THEME.spacing.space4,
+  textContainer: {
+    flex: 1,
+    paddingRight: 4,
   },
-  levelLabel: {
-    fontSize: THEME.typography.sizes.sm,
-    fontWeight: 'bold',
-    textTransform: 'uppercase',
-  },
-  advisoryMessage: {
-    fontSize: THEME.typography.sizes.sm,
-    lineHeight: THEME.typography.lineHeights.sm,
-    color: THEME.colors.textPrimary,
-    fontWeight: '600',
-    marginBottom: THEME.spacing.space4,
-  },
-  footerRow: {
+  titleRow: {
     flexDirection: 'row',
     alignItems: 'center',
   },
-  scoreText: {
-    fontSize: THEME.typography.sizes.xs,
-    color: THEME.colors.textSecondary,
+  title: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#0F172A',
+    lineHeight: 18,
   },
-  staleTag: {
-    fontSize: THEME.typography.sizes.xs,
-    color: THEME.colors.textMuted,
-    marginLeft: THEME.spacing.space4,
-    fontStyle: 'italic',
+  subtitle: {
+    fontSize: 11,
+    color: '#64748B',
+    marginTop: 2,
+    fontWeight: '500',
   },
-  staleBanner: {
-    backgroundColor: THEME.colors.bgSurface,
-    borderColor: THEME.colors.borderSubtle,
+  chevron: {
+    marginLeft: 6,
   },
-  staleTitle: {
-    fontSize: THEME.typography.sizes.xs,
-    color: THEME.colors.textSecondary,
-    fontWeight: 'bold',
-    marginBottom: THEME.spacing.space1,
+  emptyContainer: {
+    backgroundColor: '#F8FAFC',
+    borderColor: '#E2E8F0',
   },
-  staleMessage: {
-    fontSize: THEME.typography.sizes.xs,
-    color: THEME.colors.textMuted,
-  },
-  noDataBanner: {
-    backgroundColor: THEME.colors.bgSurface,
-    borderColor: THEME.colors.borderSubtle,
-  },
-  noDataIcon: {
-    fontSize: THEME.typography.sizes.sm,
-    color: THEME.colors.textSecondary,
-    fontWeight: 'bold',
-    marginRight: THEME.spacing.space4,
-  },
-  noDataTitle: {
-    fontSize: THEME.typography.sizes.xs,
-    fontWeight: 'bold',
-    color: THEME.colors.textSecondary,
-    textTransform: 'uppercase',
-  },
-  noDataMessage: {
-    fontSize: THEME.typography.sizes.xs,
-    color: THEME.colors.textSecondary,
-    marginTop: THEME.spacing.space1,
+  offlineContainer: {
+    backgroundColor: '#F8FAFC',
+    borderColor: '#CBD5E1',
   },
 });
