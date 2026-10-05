@@ -264,3 +264,24 @@ class Alert(Base):
     )
 
 
+class PushToken(Base):
+    """Device push notification token conforming to README_MOBILE_ALERT_NOTIFICATIONS.md §6.2."""
+    __tablename__ = "push_tokens"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    token = Column(String(255), unique=True, nullable=False, index=True)
+    platform = Column(String(20), nullable=False, default="android")  # "android" | "ios"
+    created_at = Column(DateTime, nullable=False, default=_utcnow)
+    last_seen = Column(DateTime, nullable=False, default=_utcnow)
+    active = Column(Boolean, nullable=False, default=True)
+
+    user = relationship("User")
+
+    __table_args__ = (
+        Index("ix_push_tokens_user_id", "user_id"),
+        Index("ix_push_tokens_active", "active"),
+    )
+
+
+

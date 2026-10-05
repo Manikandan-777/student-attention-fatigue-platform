@@ -91,6 +91,7 @@ class ClassFatigueAdvisoryEngine:
         tracks: Sequence[Dict[str, Any]],
         timestamp: Optional[float] = None,
         class_name: str = "Classroom",
+        min_tracks: Optional[int] = None,
     ) -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
         """Compute advisory from student tracks.
         
@@ -99,6 +100,7 @@ class ClassFatigueAdvisoryEngine:
             tracks: Sequence of dicts with {"fatigue_status": str, "fatigue_index": float}
             timestamp: Monotonic or epoch timestamp in seconds
             class_name: Human readable classroom name
+            min_tracks: Optional override for usable track threshold
 
         Returns:
             Tuple of (fatigue_advisory_payload or None, push_notification_payload or None)
@@ -113,7 +115,8 @@ class ClassFatigueAdvisoryEngine:
             if t.get("fatigue_status") != "Unknown" and t.get("fatigue_index") is not None
         ]
 
-        if len(usable_indices) < self.min_tracks:
+        threshold = min_tracks if min_tracks is not None else self.min_tracks
+        if len(usable_indices) < threshold:
             # Rule: Not enough usable tracks -> null advisory
             return None, None
 

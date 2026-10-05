@@ -8,6 +8,7 @@ Implements SYS-10, APP-24, CON §4, CON §5:
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Optional
 
 
 def _get_bool(env_var: str, default: bool) -> bool:
@@ -71,18 +72,49 @@ class Settings:
     ADVISORY_BANDS: tuple[float, float, float] = (25.0, 50.0, 75.0)
     ADVISORY_MIN_TRACKS: int = _get_int("ADVISORY_MIN_TRACKS", 5)
     ADVISORY_PERSIST_S: float = _get_float("ADVISORY_PERSIST_S", 60.0)
+
+    # Mobile Push Notification Settings (README_MOBILE_ALERT_NOTIFICATIONS.md §6.4)
+    PUSH_ENABLED: bool = _get_bool("PUSH_ENABLED", True)
+    PUSH_TTL_S: int = _get_int("PUSH_TTL_S", 120)
+    PUSH_NOTIFY_LEVEL1: bool = _get_bool("PUSH_NOTIFY_LEVEL1", True)
+    EXPO_ACCESS_TOKEN: Optional[str] = os.getenv("EXPO_ACCESS_TOKEN", None)
+
     # Environment & Security
     ENVIRONMENT: str = os.getenv("ENVIRONMENT", "development")
     ALLOWED_ORIGINS: list[str] = field(
         default_factory=lambda: (
             [origin.strip() for origin in os.getenv("ALLOWED_ORIGINS", "").split(",") if origin.strip()]
             if os.getenv("ALLOWED_ORIGINS")
-            else ["http://localhost:3000", "http://localhost:5173", "http://127.0.0.1:3000", "http://127.0.0.1:5173"]
+            else [
+                "http://localhost:3000",
+                "http://localhost:5173",
+                "http://localhost:8081",
+                "http://localhost:8082",
+                "http://127.0.0.1:3000",
+                "http://127.0.0.1:5173",
+                "http://127.0.0.1:8081",
+                "http://127.0.0.1:8082",
+            ]
         )
     )
     MAX_WS_CONNECTIONS: int = _get_int("MAX_WS_CONNECTIONS", 100)
     MAX_PAGE_SIZE: int = _get_int("MAX_PAGE_SIZE", 100)
     PASSWORD_POLICY_STRICT: bool = _get_bool("PASSWORD_POLICY_STRICT", False)
+
+    # Live Camera Detection Settings (LC-1, contracts.md §6.5)
+    LIVE_CAMERA_ENABLED: bool = _get_bool("LIVE_CAMERA_ENABLED", True)
+    LIVE_MAX_CONNECTIONS: int = _get_int("LIVE_MAX_CONNECTIONS", 2)
+    LIVE_MAX_PER_USER: int = _get_int("LIVE_MAX_PER_USER", 1)
+    LIVE_WORKERS: int = _get_int("LIVE_WORKERS", 1)
+    LIVE_TARGET_FPS: int = _get_int("LIVE_TARGET_FPS", 10)
+    LIVE_MAX_FPS: int = _get_int("LIVE_MAX_FPS", 15)
+    LIVE_MAX_FACES: int = _get_int("LIVE_MAX_FACES", 10)
+    LIVE_WINDOW_FRAMES: int = _get_int("LIVE_WINDOW_FRAMES", 30)
+    LIVE_MAX_FRAME_BYTES: int = _get_int("LIVE_MAX_FRAME_BYTES", 300000)
+    LIVE_MAX_DIM: int = _get_int("LIVE_MAX_DIM", 1280)
+    LIVE_IDLE_TIMEOUT_S: int = _get_int("LIVE_IDLE_TIMEOUT_S", 300)
+    LIVE_MAX_SESSION_S: int = _get_int("LIVE_MAX_SESSION_S", 1800)
+    LIVE_EMOTION_MIN_CONF: float = _get_float("LIVE_EMOTION_MIN_CONF", 0.50)
 
 
 settings = Settings()
