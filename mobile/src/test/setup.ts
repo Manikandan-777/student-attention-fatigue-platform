@@ -17,6 +17,27 @@ jest.mock('expo-secure-store', () => {
   };
 });
 
+jest.mock('expo-speech', () => ({
+  speak: jest.fn(),
+  stop: jest.fn(),
+  isSpeakingAsync: jest.fn().mockResolvedValue(false),
+}));
+
+jest.mock('expo-av', () => ({
+  Audio: {
+    Sound: {
+      createAsync: jest.fn().mockResolvedValue({
+        sound: {
+          playAsync: jest.fn().mockResolvedValue({}),
+          stopAsync: jest.fn().mockResolvedValue({}),
+          unloadAsync: jest.fn().mockResolvedValue({}),
+          setOnPlaybackStatusUpdate: jest.fn(),
+        },
+      }),
+    },
+  },
+}));
+
 // Mock lucide-react-native icons for Jest environment
 jest.mock('lucide-react-native', () => {
   const React = require('react');
