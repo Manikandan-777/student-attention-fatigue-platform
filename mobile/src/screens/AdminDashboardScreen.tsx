@@ -17,9 +17,11 @@ import { AdvisoryBanner, getFatigueMessage } from '../components/AdvisoryBanner'
 import { TrendLineChart } from '../components/TrendLineChart';
 import { StatusSplitDonut } from '../components/StatusSplitDonut';
 import { RecentAlertCard } from '../components/RecentAlertCard';
+import { StudentBehaviorAlertsModal } from '../components/StudentBehaviorAlertsModal';
 import { EmptySessionState } from '../components/EmptySessionState';
 import { OfflineState } from '../components/OfflineState';
-import { ClassSnapshot, FatigueAdvisory, Session } from '../types';
+import { Alert, AlertStatus, ClassSnapshot, FatigueAdvisory, Session } from '../types';
+import { soundAlertService, speechService } from '../services/soundAlert';
 
 interface AdminDashboardScreenProps {
   onNavigateTab?: (tab: string) => void;
@@ -45,6 +47,67 @@ export const AdminDashboardScreen: React.FC<AdminDashboardScreenProps> = ({
   const [confirmedAdvisory, setConfirmedAdvisory] = useState<FatigueAdvisory | null>(null);
   const candidateLevelRef = useRef<{ level: number; since: number; advisory: FatigueAdvisory } | null>(null);
 
+  const [alerts, setAlerts] = useState<Alert[]>([]);
+  const [isAlertsModalVisible, setIsAlertsModalVisible] = useState(false);
+  const [updatingAlertId, setUpdatingAlertId] = useState<number | null>(null);
+
+  // Auto-Shout controls (30s periodic loop & immediate high fatigue emergency shout)
+  const [autoShoutEnabled, setAutoShoutEnabled] = useState(true);
+  const lastHighFatigueShoutRef = useRef<number>(0);
+  const lastShoutTimeRef = useRef<number>(0);
+
+  // Live references so background intervals/callbacks always read latest state without resetting timers
+  const snapshotRef = useRef<ClassSnapshot | null>(snapshot);
+  const confirmedAdvisoryRef = useRef<FatigueAdvisory | null>(confirmedAdvisory);
+  const alertsRef = useRef<Alert[]>(alerts);
+  const autoShoutEnabledRef = useRef<boolean>(autoShoutEnabled);
+
+  useEffect(() => {
+    snapshotRef.current = snapshot;
+  }, [snapshot]);
+
+  useEffect(() => {
+    confirmedAdvisoryRef.current = confirmedAdvisory;
+  }, [confirmedAdvisory]);
+
+  useEffect(() => {
+    alertsRef.current = alerts;
+  }, [alerts]);
+
+  useEffect(() => {
+    autoShoutEnabledRef.current = autoShoutEnabled;
+  }, [autoShoutEnabled]);
+
+  const checkAndShoutHighFatigue = (snap: ClassSnapshot | null, adv?: FatigueAdvisory | null) => {
+    if (!autoShoutEnabledRef.current || soundAlertService.getIsMuted() || !snap) return;
+    const fatPct = adv?.class_fatigue_pct ?? snap.class_fatigue_pct ?? (snap.counts ? (snap.counts.fatigued / (snap.students_detected || 1)) * 100 : 0);
+    const count = snap.counts?.fatigued ?? 0;
+    const isHigh = fatPct >= 35 || count >= 3 || (adv?.level ?? 0) >= 2;
+    const now = Date.now();
+
+    if (isHigh && (now - lastHighFatigueShoutRef.current >= 18000)) {
+      lastHighFatigueShoutRef.current = now;
+      lastShoutTimeRef.current = now;
+      soundAlertService.shoutImmediateHighFatigue({
+        fatiguePct: fatPct,
+        count: count,
+        advisoryText: adv?.message || 'High student fatigue detected in session',
+      });
+    }
+  };
+
+  const fetchAlerts = async (sessionId?: number) => {
+    try {
+      const serverAlerts = await ApiService.getAlerts(sessionId);
+      if (serverAlerts && serverAlerts.length > 0) {
+        setAlerts(serverAlerts);
+        alertsRef.current = serverAlerts;
+      }
+    } catch {
+      // Ignore
+    }
+  };
+
   const loadSessions = async () => {
     try {
       const sessList = await ApiService.getSessions();
@@ -55,6 +118,7 @@ export const AdminDashboardScreen: React.FC<AdminDashboardScreenProps> = ({
       if (activeSess && (!selectedSessionId || !safeList.some((s) => s.id === selectedSessionId))) {
         setSelectedSessionId(activeSess.id);
         mobileTelemetry.subscribeSession(activeSess.id);
+        fetchAlerts(activeSess.id);
       }
     } catch {
       // Keep previous
@@ -74,6 +138,7 @@ export const AdminDashboardScreen: React.FC<AdminDashboardScreenProps> = ({
       if (!isMounted || !liveSnap) return;
 
       setSnapshot(liveSnap);
+      snapshotRef.current = liveSnap;
 
       const timeLabel = ts
         ? new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
@@ -86,26 +151,30 @@ export const AdminDashboardScreen: React.FC<AdminDashboardScreenProps> = ({
       const fatPct = liveSnap.fatigue_advisory?.class_fatigue_pct ?? liveSnap.class_fatigue_pct ?? 0;
       setFatPoints((prev) => [...prev, { ts: timeLabel, value: fatPct }].slice(-20));
 
-      const rawLevel = liveSnap.fatigue_advisory?.level ?? getFatigueMessage(fatPct).level;
-      const now = Date.now();
+      // IMMEDIATE SHOUT on high student fatigue detection
+      checkAndShoutHighFatigue(liveSnap, liveSnap.fatigue_advisory);
 
-      if (confirmedAdvisory && confirmedAdvisory.level !== rawLevel) {
+      const rawLevel = liveSnap.fatigue_advisory?.level ?? getFatigueMessage(fatPct).level;
+
+      if (confirmedAdvisoryRef.current && confirmedAdvisoryRef.current.level !== rawLevel) {
         if (candidateLevelRef.current?.level === rawLevel) {
-          if (now - candidateLevelRef.current.since >= 3000) {
-            setConfirmedAdvisory(liveSnap.fatigue_advisory ?? {
+          if (Date.now() - candidateLevelRef.current.since >= 3000) {
+            const nextAdv = liveSnap.fatigue_advisory ?? {
               level: rawLevel,
               class_fatigue_pct: fatPct,
               code: 'SHORT_BREAK',
               message: getFatigueMessage(fatPct).text,
               usable_tracks: liveSnap.students_detected,
               since: new Date().toISOString(),
-            });
+            };
+            setConfirmedAdvisory(nextAdv);
+            confirmedAdvisoryRef.current = nextAdv;
             candidateLevelRef.current = null;
           }
         } else {
           candidateLevelRef.current = {
             level: rawLevel,
-            since: now,
+            since: Date.now(),
             advisory: liveSnap.fatigue_advisory ?? {
               level: rawLevel,
               class_fatigue_pct: fatPct,
@@ -120,6 +189,7 @@ export const AdminDashboardScreen: React.FC<AdminDashboardScreenProps> = ({
         candidateLevelRef.current = null;
         if (liveSnap.fatigue_advisory) {
           setConfirmedAdvisory(liveSnap.fatigue_advisory);
+          confirmedAdvisoryRef.current = liveSnap.fatigue_advisory;
         }
       }
     });
@@ -128,17 +198,98 @@ export const AdminDashboardScreen: React.FC<AdminDashboardScreenProps> = ({
       if (isMounted) setIsWsConnected(connected);
     });
 
+    const unsubAlert = mobileTelemetry.onAlert((newAlert) => {
+      setAlerts((prev) => {
+        const exists = prev.some((a) => a.id === newAlert.id);
+        const updated = exists ? prev.map((a) => (a.id === newAlert.id ? newAlert : a)) : [newAlert, ...prev];
+        alertsRef.current = updated;
+        return updated;
+      });
+
+      // Immediate voice announcement for new incoming alert
+      if (newAlert.status === 'New' && autoShoutEnabledRef.current && !soundAlertService.getIsMuted()) {
+        const curFatPct = confirmedAdvisoryRef.current?.class_fatigue_pct ?? snapshotRef.current?.class_fatigue_pct ?? 0;
+        if (newAlert.type === 'fatigue' && (newAlert.confidence >= 0.85 || curFatPct >= 35)) {
+          soundAlertService.shoutImmediateHighFatigue({
+            fatiguePct: curFatPct,
+            count: snapshotRef.current?.counts?.fatigued ?? 0,
+            studentLabel: newAlert.label ? `Student ${newAlert.label}` : undefined,
+            advisoryText: newAlert.message,
+          });
+          lastHighFatigueShoutRef.current = Date.now();
+          lastShoutTimeRef.current = Date.now();
+        } else {
+          soundAlertService.triggerAlert(newAlert);
+          lastShoutTimeRef.current = Date.now();
+        }
+      }
+    });
+
     return () => {
       isMounted = false;
       unsubTel();
       unsubConn();
+      unsubAlert();
     };
-  }, []);
+  }, [selectedSessionId]);
+
+  // AUTOMATIC 30-SECOND PERIODIC SHOUT FOR ADMIN (Continuous, never cleared prematurely)
+  useEffect(() => {
+    if (!autoShoutEnabled) return;
+
+    const timer = setInterval(() => {
+      if (soundAlertService.getIsMuted()) return;
+      const now = Date.now();
+
+      if (now - lastShoutTimeRef.current < 12000) return;
+
+      const currentSnap = snapshotRef.current;
+      const currentAdvisory = confirmedAdvisoryRef.current;
+      const currentAlerts = alertsRef.current;
+
+      const currentFatiguePct = currentAdvisory?.class_fatigue_pct ?? currentSnap?.class_fatigue_pct ?? 0;
+      const currentCounts = currentSnap?.counts ?? { attentive: 28, distracted: 8, fatigued: 6 };
+      const fatiguedCount = currentCounts.fatigued;
+      const distractedCount = currentCounts.distracted;
+      const unresolvedAlerts = currentAlerts.filter((a) => a.status !== 'Resolved');
+
+      if (fatiguedCount > 0 || distractedCount > 0 || currentFatiguePct >= 20 || unresolvedAlerts.length > 0) {
+        lastShoutTimeRef.current = now;
+        const latestAlert = unresolvedAlerts[0];
+        soundAlertService.shoutPeriodic30s({
+          fatiguePct: currentFatiguePct,
+          count: fatiguedCount,
+          distractedCount: distractedCount,
+          advisoryText: currentAdvisory?.message,
+          activeAlertLabel: latestAlert ? `Student ${latestAlert.label}` : undefined,
+        });
+      }
+    }, 30000); // 30-second interval
+
+    return () => clearInterval(timer);
+  }, [autoShoutEnabled]);
+
+  const handleUpdateAlertStatus = async (alertId: number, nextStatus: AlertStatus) => {
+    setUpdatingAlertId(alertId);
+    try {
+      const updated = await ApiService.updateAlertStatus(alertId, nextStatus);
+      setAlerts((prev) => prev.map((a) => (a.id === alertId ? updated : a)));
+    } catch {
+      setAlerts((prev) =>
+        prev.map((a) =>
+          a.id === alertId ? { ...a, status: nextStatus } : a
+        )
+      );
+    } finally {
+      setUpdatingAlertId(null);
+    }
+  };
 
   const handleSelectSession = (sessionId: number) => {
     setSelectedSessionId(sessionId);
     mobileTelemetry.subscribeSession(sessionId);
     setSessionModalVisible(false);
+    fetchAlerts(sessionId);
     // Reset trend data for newly switched session
     setAttPoints([]);
     setFatPoints([]);
@@ -164,6 +315,9 @@ export const AdminDashboardScreen: React.FC<AdminDashboardScreenProps> = ({
   const studentsDetected = snapshot?.students_detected || 42;
   const openAlerts = snapshot?.open_alerts ?? 2;
   const fatiguePct = confirmedAdvisory?.class_fatigue_pct ?? snapshot?.class_fatigue_pct ?? 62;
+
+  const openFatigueCount = alerts.filter((a) => a.type === 'fatigue' && a.status !== 'Resolved').length;
+  const openDistractionCount = alerts.filter((a) => a.type === 'distraction' && a.status !== 'Resolved').length;
 
   return (
     <ScrollView
@@ -191,7 +345,12 @@ export const AdminDashboardScreen: React.FC<AdminDashboardScreenProps> = ({
           </View>
         </View>
 
-        <TouchableOpacity style={styles.iconBtn} activeOpacity={0.7} accessibilityLabel="Notifications">
+        <TouchableOpacity
+          style={styles.iconBtn}
+          activeOpacity={0.7}
+          accessibilityLabel="Notifications"
+          onPress={() => setIsAlertsModalVisible(true)}
+        >
           <Bell size={22} color="#0F172A" />
         </TouchableOpacity>
       </View>
@@ -305,8 +464,23 @@ export const AdminDashboardScreen: React.FC<AdminDashboardScreenProps> = ({
       {/* Recent Alert Count Card */}
       <RecentAlertCard
         openAlerts={openAlerts}
-        onPress={() => onNavigateTab?.('Dashboard')}
+        fatigueCount={openFatigueCount}
+        distractionCount={openDistractionCount}
+        onPress={() => setIsAlertsModalVisible(true)}
       />
+
+      {/* Student Behavior Alerts Modal */}
+      {isAlertsModalVisible && (
+        <StudentBehaviorAlertsModal
+          visible={isAlertsModalVisible}
+          onClose={() => setIsAlertsModalVisible(false)}
+          alerts={alerts}
+          onUpdateStatus={handleUpdateAlertStatus}
+          onRefresh={() => fetchAlerts(selectedSessionId || undefined)}
+          className={sessionDisplayName}
+          isUpdatingId={updatingAlertId}
+        />
+      )}
     </ScrollView>
   );
 };

@@ -8,22 +8,50 @@ import {
   RefreshControl,
   Image,
 } from 'react-native';
-import { Menu, Bell } from 'lucide-react-native';
+import { Menu, Bell, Volume2, VolumeX, Megaphone } from 'lucide-react-native';
 import { THEME } from '../theme';
 import { ApiService } from '../services/api';
 import { mobileTelemetry } from '../services/websocket';
+import { speechService, soundAlertService } from '../services/soundAlert';
 import { StatCard } from '../components/StatCard';
 import { AdvisoryBanner, getFatigueMessage } from '../components/AdvisoryBanner';
 import { TrendLineChart } from '../components/TrendLineChart';
 import { StatusSplitDonut } from '../components/StatusSplitDonut';
 import { RecentAlertCard } from '../components/RecentAlertCard';
+import { StudentBehaviorAlertCard } from '../components/StudentBehaviorAlertCard';
+import { StudentBehaviorAlertsModal } from '../components/StudentBehaviorAlertsModal';
 import { EmptySessionState } from '../components/EmptySessionState';
 import { OfflineState } from '../components/OfflineState';
-import { ClassSnapshot, FatigueAdvisory } from '../types';
+import { Alert, AlertStatus, ClassSnapshot, FatigueAdvisory } from '../types';
 
 interface TeacherDashboardScreenProps {
   onNavigateTab?: (tab: string) => void;
 }
+
+const INITIAL_DEMO_ALERTS: Alert[] = [
+  {
+    id: 101,
+    session_id: 12,
+    track_id: 1,
+    label: 'S001',
+    type: 'fatigue',
+    status: 'New',
+    message: 'Frequent yawning and eyelid closure observed over last 60s',
+    confidence: 0.94,
+    created_at: new Date(Date.now() - 1000 * 60 * 2).toISOString(),
+  },
+  {
+    id: 102,
+    session_id: 12,
+    track_id: 4,
+    label: 'S004',
+    type: 'distraction',
+    status: 'New',
+    message: 'Sustained head yaw away from teacher / off-task gaze detected for > 15s',
+    confidence: 0.88,
+    created_at: new Date(Date.now() - 1000 * 60 * 5).toISOString(),
+  },
+];
 
 export const TeacherDashboardScreen: React.FC<TeacherDashboardScreenProps> = ({
   onNavigateTab,
@@ -33,6 +61,13 @@ export const TeacherDashboardScreen: React.FC<TeacherDashboardScreenProps> = ({
   const [refreshing, setRefreshing] = useState(false);
   const [isWsConnected, setIsWsConnected] = useState(false);
 
+  // Student Behavior Alerts & Voice Speech states
+  const [alerts, setAlerts] = useState<Alert[]>(INITIAL_DEMO_ALERTS);
+  const [alertsFilter, setAlertsFilter] = useState<'all' | 'fatigue' | 'distraction'>('all');
+  const [isAlertsModalVisible, setIsAlertsModalVisible] = useState(false);
+  const [updatingAlertId, setUpdatingAlertId] = useState<number | null>(null);
+  const [isVoiceMuted, setIsVoiceMuted] = useState(speechService.getIsMuted());
+
   // Live trend points (Attention & Fatigue)
   const [attPoints, setAttPoints] = useState<Array<{ ts: string; value: number }>>([]);
   const [fatPoints, setFatPoints] = useState<Array<{ ts: string; value: number }>>([]);
@@ -41,14 +76,82 @@ export const TeacherDashboardScreen: React.FC<TeacherDashboardScreenProps> = ({
   const [confirmedAdvisory, setConfirmedAdvisory] = useState<FatigueAdvisory | null>(null);
   const candidateLevelRef = useRef<{ level: number; since: number; advisory: FatigueAdvisory } | null>(null);
 
+  // Auto-Shout controls (30s periodic loop & immediate high fatigue emergency shout)
+  const [autoShoutEnabled, setAutoShoutEnabled] = useState(true);
+  const lastHighFatigueShoutRef = useRef<number>(0);
+  const lastShoutTimeRef = useRef<number>(0);
+
+  // Live references so background intervals/callbacks always read latest state without resetting timers
+  const snapshotRef = useRef<ClassSnapshot | null>(snapshot);
+  const confirmedAdvisoryRef = useRef<FatigueAdvisory | null>(confirmedAdvisory);
+  const alertsRef = useRef<Alert[]>(alerts);
+  const autoShoutEnabledRef = useRef<boolean>(autoShoutEnabled);
+
+  useEffect(() => {
+    snapshotRef.current = snapshot;
+  }, [snapshot]);
+
+  useEffect(() => {
+    confirmedAdvisoryRef.current = confirmedAdvisory;
+  }, [confirmedAdvisory]);
+
+  useEffect(() => {
+    alertsRef.current = alerts;
+  }, [alerts]);
+
+  useEffect(() => {
+    autoShoutEnabledRef.current = autoShoutEnabled;
+  }, [autoShoutEnabled]);
+
+  const checkAndShoutHighFatigue = (snap: ClassSnapshot | null, adv?: FatigueAdvisory | null) => {
+    if (!autoShoutEnabledRef.current || soundAlertService.getIsMuted() || !snap) return;
+    const fatPct = adv?.class_fatigue_pct ?? snap.class_fatigue_pct ?? (snap.counts ? (snap.counts.fatigued / (snap.students_detected || 1)) * 100 : 0);
+    const fatiguedCount = snap.counts?.fatigued ?? 0;
+    const isHigh = fatPct >= 35 || fatiguedCount >= 3 || (adv?.level ?? 0) >= 2;
+    const now = Date.now();
+
+    if (isHigh && (now - lastHighFatigueShoutRef.current >= 18000)) {
+      lastHighFatigueShoutRef.current = now;
+      lastShoutTimeRef.current = now;
+      soundAlertService.shoutImmediateHighFatigue({
+        fatiguePct: fatPct,
+        count: fatiguedCount,
+        advisoryText: adv?.message || 'High student fatigue detected in session',
+      });
+    }
+  };
+
+  const fetchAlerts = async (sessionId?: number) => {
+    try {
+      const serverAlerts = await ApiService.getAlerts(sessionId);
+      if (serverAlerts && serverAlerts.length > 0) {
+        setAlerts(serverAlerts);
+        alertsRef.current = serverAlerts;
+      }
+    } catch {
+      // Keep demo/existing alerts if offline
+    }
+  };
+
+  const initialTimeoutRef = useRef<any>(null);
+
   const fetchDashboard = async () => {
     try {
       const data = await ApiService.getTeacherDashboard();
       if (data) {
         setSnapshot(data);
+        snapshotRef.current = data;
         if (data.fatigue_advisory) {
           setConfirmedAdvisory(data.fatigue_advisory);
+          confirmedAdvisoryRef.current = data.fatigue_advisory;
         }
+        fetchAlerts(data.session_id);
+
+        // IMMEDIATE SHOUT: If class is already in high fatigue when dashboard loads, shout immediately!
+        if (initialTimeoutRef.current) clearTimeout(initialTimeoutRef.current);
+        initialTimeoutRef.current = setTimeout(() => {
+          checkAndShoutHighFatigue(data, data.fatigue_advisory);
+        }, 800);
       }
     } catch {
       // Keep last available data
@@ -70,6 +173,7 @@ export const TeacherDashboardScreen: React.FC<TeacherDashboardScreenProps> = ({
       if (!isMounted || !liveSnap) return;
 
       setSnapshot(liveSnap);
+      snapshotRef.current = liveSnap;
 
       const timeLabel = ts ? new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
@@ -88,27 +192,31 @@ export const TeacherDashboardScreen: React.FC<TeacherDashboardScreenProps> = ({
         return next.slice(-20);
       });
 
+      // IMMEDIATE SHOUT: Trigger whenever live high fatigue is detected
+      checkAndShoutHighFatigue(liveSnap, liveSnap.fatigue_advisory);
+
       // Apply 3-second hold hysteresis on advisory message (avoid flicker)
       const rawLevel = liveSnap.fatigue_advisory?.level ?? getFatigueMessage(fatPct).level;
-      const now = Date.now();
 
-      if (confirmedAdvisory && confirmedAdvisory.level !== rawLevel) {
+      if (confirmedAdvisoryRef.current && confirmedAdvisoryRef.current.level !== rawLevel) {
         if (candidateLevelRef.current?.level === rawLevel) {
-          if (now - candidateLevelRef.current.since >= 3000) {
-            setConfirmedAdvisory(liveSnap.fatigue_advisory ?? {
+          if (Date.now() - candidateLevelRef.current.since >= 3000) {
+            const nextAdv = liveSnap.fatigue_advisory ?? {
               level: rawLevel,
               class_fatigue_pct: fatPct,
               code: 'CONTINUE',
               message: getFatigueMessage(fatPct).text,
               usable_tracks: liveSnap.students_detected,
               since: new Date().toISOString(),
-            });
+            };
+            setConfirmedAdvisory(nextAdv);
+            confirmedAdvisoryRef.current = nextAdv;
             candidateLevelRef.current = null;
           }
         } else {
           candidateLevelRef.current = {
             level: rawLevel,
-            since: now,
+            since: Date.now(),
             advisory: liveSnap.fatigue_advisory ?? {
               level: rawLevel,
               class_fatigue_pct: fatPct,
@@ -123,6 +231,7 @@ export const TeacherDashboardScreen: React.FC<TeacherDashboardScreenProps> = ({
         candidateLevelRef.current = null;
         if (liveSnap.fatigue_advisory) {
           setConfirmedAdvisory(liveSnap.fatigue_advisory);
+          confirmedAdvisoryRef.current = liveSnap.fatigue_advisory;
         }
       }
     });
@@ -131,16 +240,132 @@ export const TeacherDashboardScreen: React.FC<TeacherDashboardScreenProps> = ({
       if (isMounted) setIsWsConnected(connected);
     });
 
+    // Real-time alert listener for student behaviors with voice speech
+    const unsubAlert = mobileTelemetry.onAlert((newAlert) => {
+      if (!isMounted || !newAlert) return;
+
+      setAlerts((prev) => {
+        const exists = prev.some((a) => a.id === newAlert.id);
+        const updated = exists ? prev.map((a) => (a.id === newAlert.id ? newAlert : a)) : [newAlert, ...prev];
+        alertsRef.current = updated;
+        return updated;
+      });
+
+      // Announce newly triggered student behavior alert
+      if (newAlert.status === 'New' && autoShoutEnabledRef.current && !soundAlertService.getIsMuted()) {
+        const curFatPct = confirmedAdvisoryRef.current?.class_fatigue_pct ?? snapshotRef.current?.class_fatigue_pct ?? 0;
+        if (newAlert.type === 'fatigue' && (newAlert.confidence >= 0.85 || curFatPct >= 35)) {
+          // IMMEDIATE SHOUT for high fatigue behavior
+          soundAlertService.shoutImmediateHighFatigue({
+            fatiguePct: curFatPct,
+            count: snapshotRef.current?.counts?.fatigued ?? 0,
+            studentLabel: newAlert.label ? `Student ${newAlert.label}` : undefined,
+            advisoryText: newAlert.message,
+          });
+          lastHighFatigueShoutRef.current = Date.now();
+          lastShoutTimeRef.current = Date.now();
+        } else {
+          soundAlertService.triggerAlert(newAlert);
+          lastShoutTimeRef.current = Date.now();
+        }
+      }
+    });
+
     return () => {
       isMounted = false;
+      if (initialTimeoutRef.current) clearTimeout(initialTimeoutRef.current);
       unsubTel();
       unsubConn();
+      unsubAlert();
     };
   }, []);
+
+  // AUTOMATIC 30-SECOND SHOUT LOOP (Continuous, never cleared by telemetry state changes)
+  useEffect(() => {
+    if (!autoShoutEnabled) return;
+
+    const intervalTimer = setInterval(() => {
+      if (soundAlertService.getIsMuted()) return;
+      const now = Date.now();
+
+      // Don't collide if an emergency shout happened recently (< 12s)
+      if (now - lastShoutTimeRef.current < 12000) return;
+
+      const currentSnap = snapshotRef.current;
+      const currentAdvisory = confirmedAdvisoryRef.current;
+      const currentAlerts = alertsRef.current;
+
+      const currentFatiguePct = currentAdvisory?.class_fatigue_pct ?? currentSnap?.class_fatigue_pct ?? 0;
+      const currentCounts = currentSnap?.counts ?? { attentive: 28, distracted: 8, fatigued: 6 };
+      const fatiguedCount = currentCounts.fatigued;
+      const distractedCount = currentCounts.distracted;
+      const unresolvedAlerts = currentAlerts.filter((a) => a.status !== 'Resolved');
+
+      // Auto-shout if there are fatigued or distracted students or active alerts or fatigue pct
+      if (fatiguedCount > 0 || distractedCount > 0 || currentFatiguePct >= 20 || unresolvedAlerts.length > 0) {
+        lastShoutTimeRef.current = now;
+        const latestAlert = unresolvedAlerts[0];
+        soundAlertService.shoutPeriodic30s({
+          fatiguePct: currentFatiguePct,
+          count: fatiguedCount,
+          distractedCount: distractedCount,
+          advisoryText: currentAdvisory?.message,
+          activeAlertLabel: latestAlert ? `Student ${latestAlert.label}` : undefined,
+        });
+      }
+    }, 30000); // Exactly every 30 seconds
+
+    return () => clearInterval(intervalTimer);
+  }, [autoShoutEnabled]);
 
   const onRefresh = () => {
     setRefreshing(true);
     fetchDashboard();
+  };
+
+  const handleToggleVoice = () => {
+    const nextMuted = soundAlertService.toggleMute();
+    setIsVoiceMuted(nextMuted);
+    if (!nextMuted) {
+      soundAlertService.playAlertSound();
+      soundAlertService.speakText('Sound and voice alerts enabled');
+    }
+  };
+
+  const handleTestVoiceAlert = () => {
+    soundAlertService.testAlert();
+  };
+
+  const handleTestHighFatigueShout = () => {
+    soundAlertService.testHighFatigueAlert();
+  };
+
+  const handleTestPeriodic30sShout = () => {
+    soundAlertService.testPeriodic30sAlert();
+  };
+
+  const handleUpdateAlertStatus = async (alertId: number, nextStatus: AlertStatus) => {
+    setUpdatingAlertId(alertId);
+    try {
+      const updated = await ApiService.updateAlertStatus(alertId, nextStatus);
+      setAlerts((prev) => prev.map((a) => (a.id === alertId ? updated : a)));
+    } catch {
+      // Optimistic update if offline
+      setAlerts((prev) =>
+        prev.map((a) =>
+          a.id === alertId
+            ? {
+                ...a,
+                status: nextStatus,
+                viewed_at: nextStatus === 'Viewed' ? new Date().toISOString() : a.viewed_at,
+                resolved_at: nextStatus === 'Resolved' ? new Date().toISOString() : a.resolved_at,
+              }
+            : a
+        )
+      );
+    } finally {
+      setUpdatingAlertId(null);
+    }
   };
 
   const counts = snapshot?.counts ?? {
@@ -154,6 +379,16 @@ export const TeacherDashboardScreen: React.FC<TeacherDashboardScreenProps> = ({
   const openAlerts = snapshot?.open_alerts ?? 2;
   const className = snapshot?.class_name || 'AI & DS - A Section';
   const fatiguePct = confirmedAdvisory?.class_fatigue_pct ?? snapshot?.class_fatigue_pct ?? 38;
+
+  const openFatigueCount = alerts.filter((a) => a.type === 'fatigue' && a.status !== 'Resolved').length;
+  const openDistractionCount = alerts.filter((a) => a.type === 'distraction' && a.status !== 'Resolved').length;
+  const openBehaviorAlerts = alerts.filter((a) => a.status !== 'Resolved').length;
+
+  const displayedAlerts = alerts.filter((a) => {
+    if (alertsFilter === 'fatigue') return a.type === 'fatigue';
+    if (alertsFilter === 'distraction') return a.type === 'distraction';
+    return true;
+  });
 
   return (
     <ScrollView
@@ -182,9 +417,36 @@ export const TeacherDashboardScreen: React.FC<TeacherDashboardScreenProps> = ({
           </View>
         </View>
 
-        <TouchableOpacity style={styles.iconBtn} activeOpacity={0.7} accessibilityLabel="Notifications">
-          <Bell size={22} color="#0F172A" />
-        </TouchableOpacity>
+        <View style={styles.headerRightActions}>
+          {/* Voice Speech Toggle */}
+          <TouchableOpacity
+            style={[styles.iconBtn, isVoiceMuted && styles.voiceBtnMuted]}
+            activeOpacity={0.7}
+            onPress={handleToggleVoice}
+            accessibilityLabel={isVoiceMuted ? 'Unmute voice alerts' : 'Mute voice alerts'}
+          >
+            {isVoiceMuted ? (
+              <VolumeX size={20} color="#EF4444" />
+            ) : (
+              <Volume2 size={20} color="#4F46E5" />
+            )}
+          </TouchableOpacity>
+
+          {/* Bell Notifications */}
+          <TouchableOpacity
+            style={styles.iconBtn}
+            activeOpacity={0.7}
+            accessibilityLabel="Notifications"
+            onPress={() => setIsAlertsModalVisible(true)}
+          >
+            <Bell size={22} color="#0F172A" />
+            {openBehaviorAlerts > 0 && (
+              <View style={styles.bellBadge}>
+                <Text style={styles.bellBadgeText}>{openBehaviorAlerts}</Text>
+              </View>
+            )}
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Offline banner if disconnected */}
@@ -253,9 +515,177 @@ export const TeacherDashboardScreen: React.FC<TeacherDashboardScreenProps> = ({
           {/* Recent Alert Count Card */}
           <RecentAlertCard
             openAlerts={openAlerts}
-            onPress={() => onNavigateTab?.('Dashboard')}
+            fatigueCount={openFatigueCount}
+            distractionCount={openDistractionCount}
+            onPress={() => setIsAlertsModalVisible(true)}
           />
+
+            {/* Student Behavior Alerts Section */}
+          <View style={styles.behaviorSection}>
+            <View style={styles.behaviorHeaderRow}>
+              <View style={styles.behaviorTitleGroup}>
+                <Text style={styles.behaviorTitle}>Student Behavior Alerts</Text>
+                <Text style={styles.behaviorSubtitle}>
+                  Real-time alerts for student fatigue & attention with automatic voice shout
+                </Text>
+              </View>
+              <TouchableOpacity
+                style={styles.viewAllBtn}
+                onPress={() => setIsAlertsModalVisible(true)}
+                activeOpacity={0.7}
+                accessibilityLabel={`View all ${alerts.length} behavior alerts`}
+              >
+                <Text style={styles.viewAllBtnText}>View All ({alerts.length})</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Auto-Shout Status & Interval Control Banner */}
+            <View style={styles.autoShoutBanner}>
+              <View style={styles.autoShoutLeft}>
+                <View style={[styles.pulseDot, autoShoutEnabled && !isVoiceMuted ? styles.pulseDotActive : styles.pulseDotInactive]} />
+                <View style={styles.autoShoutTextGroup}>
+                  <Text style={styles.autoShoutTitle}>Auto-Shout: 30s Loop & High Fatigue Immediate</Text>
+                  <Text style={styles.autoShoutSubtitle}>
+                    {isVoiceMuted
+                      ? 'Audio muted (unmute at top right)'
+                      : autoShoutEnabled
+                      ? 'Active • High fatigue triggers immediate emergency siren • 30s status loop'
+                      : 'Auto-shout paused'}
+                  </Text>
+                </View>
+              </View>
+              <TouchableOpacity
+                testID="auto-shout-toggle-btn"
+                style={[styles.autoShoutToggleBtn, autoShoutEnabled && styles.autoShoutToggleBtnActive]}
+                onPress={() => setAutoShoutEnabled(!autoShoutEnabled)}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.autoShoutToggleText, autoShoutEnabled && styles.autoShoutToggleTextActive]}>
+                  {autoShoutEnabled ? 'ON' : 'OFF'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Quick Shout Action & Test Buttons */}
+            <View style={styles.shoutActionsRow}>
+              <TouchableOpacity
+                testID="test-voice-btn"
+                style={styles.voiceTestBtn}
+                onPress={handleTestVoiceAlert}
+                activeOpacity={0.7}
+                accessibilityLabel="Test Voice Alert"
+              >
+                <Megaphone size={12} color="#4F46E5" />
+                <Text style={styles.voiceTestBtnText}>Test Voice</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                testID="test-high-fatigue-btn"
+                style={[styles.voiceTestBtn, styles.highFatigueTestBtn]}
+                onPress={handleTestHighFatigueShout}
+                activeOpacity={0.7}
+                accessibilityLabel="Immediate High Fatigue Shout"
+              >
+                <Text style={styles.highFatigueTestBtnText}>⚡ High Fatigue Shout</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                testID="test-periodic-30s-btn"
+                style={[styles.voiceTestBtn, styles.periodicTestBtn]}
+                onPress={handleTestPeriodic30sShout}
+                activeOpacity={0.7}
+                accessibilityLabel="Test 30s Periodic Shout"
+              >
+                <Text style={styles.periodicTestBtnText}>⏱ 30s Shout</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Behavior Filter Chips */}
+            <View style={styles.filterRow}>
+              <TouchableOpacity
+                testID="filter-chip-all"
+                style={[styles.filterChip, alertsFilter === 'all' && styles.filterChipActive]}
+                onPress={() => setAlertsFilter('all')}
+              >
+                <Text
+                  style={[
+                    styles.filterChipText,
+                    alertsFilter === 'all' && styles.filterChipTextActive,
+                  ]}
+                >
+                  All ({alerts.length})
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                testID="filter-chip-fatigue"
+                style={[
+                  styles.filterChip,
+                  alertsFilter === 'fatigue' && styles.filterChipActiveFatigue,
+                ]}
+                onPress={() => setAlertsFilter('fatigue')}
+              >
+                <Text
+                  style={[
+                    styles.filterChipText,
+                    alertsFilter === 'fatigue' && styles.filterChipTextActiveFatigue,
+                  ]}
+                >
+                  Fatigue ({openFatigueCount})
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                testID="filter-chip-distraction"
+                style={[
+                  styles.filterChip,
+                  alertsFilter === 'distraction' && styles.filterChipActiveDistraction,
+                ]}
+                onPress={() => setAlertsFilter('distraction')}
+              >
+                <Text
+                  style={[
+                    styles.filterChipText,
+                    alertsFilter === 'distraction' && styles.filterChipTextActiveDistraction,
+                  ]}
+                >
+                  Inattentive ({openDistractionCount})
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Inline Behavior Alert Cards */}
+            {displayedAlerts.length === 0 ? (
+              <View style={styles.emptyBehaviorCard}>
+                <Text style={styles.emptyBehaviorText}>
+                  ✓ No alerts for this filter. All students are attentive!
+                </Text>
+              </View>
+            ) : (
+              displayedAlerts.slice(0, 3).map((item) => (
+                <StudentBehaviorAlertCard
+                  key={item.id}
+                  alert={item}
+                  onUpdateStatus={handleUpdateAlertStatus}
+                  isUpdating={updatingAlertId === item.id}
+                />
+              ))
+            )}
+          </View>
         </>
+      )}
+
+      {/* Interactive Student Behavior Alerts Modal */}
+      {isAlertsModalVisible && (
+        <StudentBehaviorAlertsModal
+          visible={isAlertsModalVisible}
+          onClose={() => setIsAlertsModalVisible(false)}
+          alerts={alerts}
+          onUpdateStatus={handleUpdateAlertStatus}
+          onRefresh={() => fetchAlerts(snapshot?.session_id)}
+          className={className}
+          isUpdatingId={updatingAlertId}
+        />
       )}
     </ScrollView>
   );
@@ -362,5 +792,238 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     marginBottom: 8,
+  },
+  headerRightActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  voiceBtnMuted: {
+    backgroundColor: '#FEE2E2',
+  },
+  bellBadge: {
+    position: 'absolute',
+    top: 2,
+    right: 2,
+    backgroundColor: '#DC2626',
+    borderRadius: 8,
+    minWidth: 16,
+    height: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 3,
+  },
+  bellBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 9,
+    fontWeight: '800',
+  },
+  behaviorSection: {
+    marginTop: 14,
+    marginBottom: 20,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#F1F5F9',
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 3,
+  },
+  behaviorHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  behaviorTitleGroup: {
+    flex: 1,
+    paddingRight: 6,
+  },
+  behaviorTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#0F172A',
+  },
+  behaviorSubtitle: {
+    fontSize: 11,
+    color: '#64748B',
+    marginTop: 2,
+  },
+  autoShoutBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#F8FAFC',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  autoShoutLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    paddingRight: 8,
+  },
+  pulseDot: {
+    width: 9,
+    height: 9,
+    borderRadius: 4.5,
+    marginRight: 8,
+  },
+  pulseDotActive: {
+    backgroundColor: '#10B981',
+  },
+  pulseDotInactive: {
+    backgroundColor: '#94A3B8',
+  },
+  autoShoutTextGroup: {
+    flex: 1,
+  },
+  autoShoutTitle: {
+    fontSize: 11.5,
+    fontWeight: '700',
+    color: '#0F172A',
+  },
+  autoShoutSubtitle: {
+    fontSize: 9.5,
+    color: '#64748B',
+    marginTop: 1,
+  },
+  autoShoutToggleBtn: {
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 8,
+    backgroundColor: '#E2E8F0',
+  },
+  autoShoutToggleBtnActive: {
+    backgroundColor: '#DCFCE7',
+  },
+  autoShoutToggleText: {
+    fontSize: 10.5,
+    fontWeight: '700',
+    color: '#64748B',
+  },
+  autoShoutToggleTextActive: {
+    color: '#15803D',
+  },
+  shoutActionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 10,
+    flexWrap: 'wrap',
+  },
+  behaviorActionBtns: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  voiceTestBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 8,
+    backgroundColor: '#EEF2FF',
+    borderWidth: 1,
+    borderColor: '#C7D2FE',
+  },
+  voiceTestBtnText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#4F46E5',
+  },
+  highFatigueTestBtn: {
+    backgroundColor: '#FEE2E2',
+    borderColor: '#FECACA',
+  },
+  highFatigueTestBtnText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#DC2626',
+  },
+  periodicTestBtn: {
+    backgroundColor: '#FEF3C7',
+    borderColor: '#FDE68A',
+  },
+  periodicTestBtnText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#B45309',
+  },
+  viewAllBtn: {
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 8,
+    backgroundColor: '#F1F5F9',
+  },
+  viewAllBtnText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#475569',
+  },
+  filterRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 10,
+  },
+  filterChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  filterChipActive: {
+    backgroundColor: '#EEF2FF',
+    borderColor: '#C7D2FE',
+  },
+  filterChipActiveFatigue: {
+    backgroundColor: '#FEE2E2',
+    borderColor: '#FECACA',
+  },
+  filterChipActiveDistraction: {
+    backgroundColor: '#FEF3C7',
+    borderColor: '#FDE68A',
+  },
+  filterChipText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#64748B',
+  },
+  filterChipTextActive: {
+    color: '#4F46E5',
+    fontWeight: '700',
+  },
+  filterChipTextActiveFatigue: {
+    color: '#DC2626',
+    fontWeight: '700',
+  },
+  filterChipTextActiveDistraction: {
+    color: '#D97706',
+    fontWeight: '700',
+  },
+  emptyBehaviorCard: {
+    paddingVertical: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#F8FAFC',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  emptyBehaviorText: {
+    fontSize: 12,
+    color: '#64748B',
+    fontWeight: '500',
   },
 });
