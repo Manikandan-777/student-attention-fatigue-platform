@@ -1,6 +1,6 @@
 import { WS_TELEMETRY_URL } from '../config';
 import { StorageService } from './storage';
-import { ClassSnapshot, TrackResultLite } from '../types';
+import { Alert, ClassSnapshot, TrackResultLite } from '../types';
 
 export type TelemetryListener = (data: {
   snapshot?: ClassSnapshot;
@@ -8,6 +8,7 @@ export type TelemetryListener = (data: {
   ts?: string;
 }) => void;
 
+export type AlertListener = (alert: Alert) => void;
 export type ConnectionListener = (isConnected: boolean) => void;
 
 export class MobileTelemetryClient {
@@ -17,6 +18,7 @@ export class MobileTelemetryClient {
   private currentSessionId?: number;
 
   private telemetryListeners: Set<TelemetryListener> = new Set();
+  private alertListeners: Set<AlertListener> = new Set();
   private connectionListeners: Set<ConnectionListener> = new Set();
 
   async connect(sessionId?: number): Promise<void> {
@@ -44,6 +46,8 @@ export class MobileTelemetryClient {
             this.telemetryListeners.forEach((l) =>
               l({ snapshot: msg.snapshot, tracks: msg.tracks, ts: msg.ts })
             );
+          } else if (msg.type === 'alert' && msg.alert) {
+            this.alertListeners.forEach((l) => l(msg.alert));
           }
         } catch (e) {
           console.warn('Failed to parse WebSocket message:', e);
@@ -89,6 +93,11 @@ export class MobileTelemetryClient {
   onTelemetry(listener: TelemetryListener): () => void {
     this.telemetryListeners.add(listener);
     return () => this.telemetryListeners.delete(listener);
+  }
+
+  onAlert(listener: AlertListener): () => void {
+    this.alertListeners.add(listener);
+    return () => this.alertListeners.delete(listener);
   }
 
   onConnectionChange(listener: ConnectionListener): () => void {

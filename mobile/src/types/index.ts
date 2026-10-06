@@ -73,3 +73,20 @@ export interface TrendPoint {
   ts: string;
   value: number;
 }
+
+export type AlertType = 'fatigue' | 'distraction' | 'camera_offline' | 'ai_offline';
+export type AlertStatus = 'New' | 'Viewed' | 'Resolved';
+
+export interface Alert {
+  id: number;
+  session_id?: number | null;
+  track_id?: number | null;
+  label?: string | null;
+  type: AlertType | string;
+  status: AlertStatus;
+  message: string;
+  confidence: number;
+  created_at?: string | null;
+  viewed_at?: string | null;
+  resolved_at?: string | null;
+}

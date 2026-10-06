@@ -6,6 +6,8 @@ import {
   Classroom,
   Teacher,
   Session,
+  Alert,
+  AlertStatus,
 } from '../types';
 
 export const apiClient: AxiosInstance = axios.create({
@@ -97,5 +99,19 @@ export const ApiService = {
     await apiClient.post(`/teachers/${teacherId}/assign-classroom`, null, {
       params: { classroom_id: classroomId },
     });
+  },
+
+  // Alerts API (§2.3, CON §3)
+  async getAlerts(sessionId?: number, status?: string): Promise<Alert[]> {
+    const params: Record<string, any> = {};
+    if (sessionId) params.session_id = sessionId;
+    if (status) params.status = status;
+    const res = await apiClient.get<Alert[]>('/alerts', { params });
+    return res.data;
+  },
+
+  async updateAlertStatus(alertId: number, status: AlertStatus): Promise<Alert> {
+    const res = await apiClient.patch<Alert>(`/alerts/${alertId}`, { status });
+    return res.data;
   },
 };

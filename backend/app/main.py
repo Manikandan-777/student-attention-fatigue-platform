@@ -121,6 +121,8 @@ def _is_origin_allowed(origin: Optional[str]) -> bool:
     """Validate WebSocket origin against allowed list (WS1)."""
     if not origin:
         return True
+    if settings.ENVIRONMENT != "production":
+        return True
     origin_clean = origin.strip().lower()
     for allowed in settings.ALLOWED_ORIGINS:
         if origin_clean.startswith(allowed.lower()):
