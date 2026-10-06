@@ -4,13 +4,19 @@ import { Bell, ChevronRight } from 'lucide-react-native';
 
 interface RecentAlertCardProps {
   openAlerts: number;
+  fatigueCount?: number;
+  distractionCount?: number;
   onPress?: () => void;
 }
 
 export const RecentAlertCard: React.FC<RecentAlertCardProps> = ({
   openAlerts,
+  fatigueCount,
+  distractionCount,
   onPress,
 }) => {
+  const hasBreakdown = (fatigueCount !== undefined && fatigueCount > 0) || (distractionCount !== undefined && distractionCount > 0);
+
   return (
     <TouchableOpacity
       activeOpacity={0.7}
@@ -28,6 +34,11 @@ export const RecentAlertCard: React.FC<RecentAlertCardProps> = ({
         <Text style={styles.subtitle}>
           <Text style={styles.alertCount}>{openAlerts} </Text>
           open alerts
+          {hasBreakdown && (
+            <Text style={styles.breakdownText}>
+              {' '}({fatigueCount ? `${fatigueCount} Fatigue` : ''}{fatigueCount && distractionCount ? ', ' : ''}{distractionCount ? `${distractionCount} Inattentive` : ''})
+            </Text>
+          )}
         </Text>
       </View>
 
@@ -77,5 +88,10 @@ const styles = StyleSheet.create({
   alertCount: {
     color: '#DC2626',
     fontWeight: '700',
+  },
+  breakdownText: {
+    color: '#475569',
+    fontWeight: '500',
+    fontSize: 11,
   },
 });
