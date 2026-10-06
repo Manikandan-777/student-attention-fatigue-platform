@@ -15,6 +15,7 @@ import Svg, { Path } from 'react-native-svg';
 import { THEME } from '../theme';
 import { ApiService } from '../services/api';
 import { StorageService } from '../services/storage';
+import { soundAlertService } from '../services/soundAlert';
 
 interface LoginScreenProps {
   onLoginSuccess: (role: string, username?: string) => void;
@@ -37,6 +38,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLoginSuccess }) => {
     setErrorMessage(null);
 
     try {
+      soundAlertService.unlockAudio();
       const data = await ApiService.login(username.trim(), password.trim());
       await StorageService.saveAuth(data.access_token, data.role, username.trim());
       onLoginSuccess(data.role, username.trim());
