@@ -201,10 +201,12 @@ npx expo start
 ---
 
 ## 🔄 Operating Web and Mobile Concurrently
+## Real-Time Interface Deployment
 
-During a typical classroom session, both interfaces operate simultaneously in real time:
-- **Web Operator Console** is stationed at the lab proctor desk, monitoring high-density 25-track grids, hardware frame rates, and alert lifecycles.
-- **Teacher Mobile App** is carried by the teacher lecturing at the front of the room, receiving glanceable Level 1–4 advisory banners and alert notifications without video distractions.
+During a typical classroom session, the system deploys two distinct interfaces operating simultaneously in real time to ensure comprehensive monitoring and immediate instructional support:
+
+* **Web Operator Console:** Stationed at the lab proctor desk, this dashboard is optimized for continuous technical oversight. It monitors high-density 25-track video grids, tracks hardware frame rates, and manages the complete lifecycle of system alerts.
+* **Teacher Mobile App:** Utilized actively by the instructor at the front of the room. This mobile-optimized application delivers glanceable Level 1–4 advisory banners and critical alert notifications, maintaining real-time situational awareness without introducing video-based distractions during the lecture.
 
 For full technical specifications, network diagrams, and operational procedures, see **[docs/README_OPERATIONS.md](docs/README_OPERATIONS.md)**.
 
